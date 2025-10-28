@@ -1,5 +1,7 @@
 # Smart Video Downloader
 
+[![Download Installer](https://img.shields.io/badge/Download-Installer-DC2626?style=for-the-badge&logo=download&logoColor=white)](https://github.com/adnaanaeem/smart-video-downloader/releases/download/v1.0.0/SmartVideoDownloaderSetup.exe)
+
 ![Main Application Window](https://raw.githubusercontent.com/adnaanaeem/smart-video-downloader/main/screenshots/download_queue.png)
 
 A modern, feature-rich desktop application for downloading videos and audio from the web. Built with Python and PyQt6, this application provides a sleek user interface and a robust backend powered by `yt-dlp`.
