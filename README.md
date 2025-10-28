@@ -28,8 +28,8 @@ A modern, feature-rich desktop application for downloading videos and audio from
 
 ### Installation
 
-1.  Go to the [**Releases Page**](https://github.com/adnaanaeem/smart-video-downloader/releases).
-2.  Download the `SmartVideoDownloaderSetup.exe` file from the latest release.
+1.  Go to the [**Releases Page**](https://github.com/adnaanaeem/smart-video-downloader/releases/latest).
+2.  Download the `SmartVideoDownloaderSetup.exe` file.
 3.  Run the installer and follow the on-screen instructions.
 
 ### Running from Source
