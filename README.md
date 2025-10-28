@@ -46,7 +46,9 @@ A modern, feature-rich desktop application for downloading videos and audio from
 ### Screenshots
 
 #### Download Queue
-![Download Queue](https://raw.githubusercontent.com/adnaanaeem/smart-video-downloader/main/screenshots/main_window.png)
+![Main Window](https://raw.githubusercontent.com/adnaanaeem/smart-video-downloader/main/screenshots/main_window.png)
+
+![Download Queue](https://raw.githubusercontent.com/adnaanaeem/smart-video-downloader/main/screenshots/download_queue.png)
 
 #### Private Video Help
 ![Private Video Help Dialog](https://raw.githubusercontent.com/adnaanaeem/smart-video-downloader/main/screenshots/private_video_help.png)
