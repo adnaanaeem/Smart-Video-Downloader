@@ -5,7 +5,7 @@
 ; This unique ID must NOT change between versions.
 AppId={{C6A8E3A8-245B-44A7-927A-1A8C8F7E4B3F}}
 AppName=Smart Video Downloader
-AppVersion=2.0.0
+AppVersion=2.0.1
 AppPublisher=Adnan Naeem
 DefaultDirName={autopf}\Smart Video Downloader
 DisableProgramGroupPage=yes
