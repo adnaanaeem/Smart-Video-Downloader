@@ -1,18 +1,17 @@
-; Inno Setup Script for Smart Video Downloader
+; Inno Setup Script for Smart Video Downloader v2.0
 ; Created by Adnan Naeem
 
 [Setup]
-; NOTE: The AppId is a unique identifier for your application.
-; It's generated once and should not change between versions.
+; This unique ID must NOT change between versions.
 AppId={{C6A8E3A8-245B-44A7-927A-1A8C8F7E4B3F}}
 AppName=Smart Video Downloader
-AppVersion=1.0
+AppVersion=2.0.0
 AppPublisher=Adnan Naeem
 DefaultDirName={autopf}\Smart Video Downloader
 DisableProgramGroupPage=yes
-; The folder where the final setup.exe will be saved.
 OutputDir=C:\YT-Downloader\Output
-OutputBaseFilename=SmartVideoDownloaderSetup
+; A versioned filename is good practice.
+OutputBaseFilename=SmartVideoDownloaderSetup-v2.0.0
 SetupIconFile=C:\YT-Downloader\icon.ico
 Compression=lzma
 SolidCompression=yes
@@ -26,11 +25,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}";
 
 [Files]
-; This is the main executable created by PyInstaller.
+; This bundles the main executable created by PyInstaller.
 Source: "C:\YT-Downloader\dist\Smart Video Downloader.exe"; DestDir: "{app}"; Flags: ignoreversion
-
-; NOTE: If you add more files (like a readme.txt), add them here.
-; For example: Source: "C:\YT-Downloader\readme.txt"; DestDir: "{app}";
 
 [Icons]
 Name: "{group}\Smart Video Downloader"; Filename: "{app}\Smart Video Downloader.exe"
