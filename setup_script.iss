@@ -9,10 +9,10 @@ AppVersion=2.0.0
 AppPublisher=Adnan Naeem
 DefaultDirName={autopf}\Smart Video Downloader
 DisableProgramGroupPage=yes
-OutputDir=C:\YT-Downloader\Output
-; A versioned filename is good practice.
+; The folder where the final setup.exe will be saved.
+OutputDir=C:\ADNAN\YT-Downloader\Output
 OutputBaseFilename=SmartVideoDownloaderSetup-v2.0.0
-SetupIconFile=C:\YT-Downloader\icon.ico
+SetupIconFile=C:\ADNAN\YT-Downloader\icon.ico
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -26,7 +26,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; This bundles the main executable created by PyInstaller.
-Source: "C:\YT-Downloader\dist\Smart Video Downloader.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "C:\ADNAN\YT-Downloader\dist\Smart Video Downloader.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Smart Video Downloader"; Filename: "{app}\Smart Video Downloader.exe"
