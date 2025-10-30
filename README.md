@@ -1,6 +1,6 @@
-# Smart Video Downloader v2.0
+# Smart Video Downloader v2.0.1
 
-[![Download Latest Version](https://img.shields.io/badge/Download-Latest%20Version-DC2626?style=for-the-badge&logo=download&logoColor=white)](https://github.com/adnaanaeem/smart-video-downloader/releases/latest/download/SmartVideoDownloaderSetup.exe)
+[![Download Latest Version](https://img.shields.io/badge/Download-Latest%20Version-DC2626?style=for-the-badge&logo=download&logoColor=white)](https://github.com/adnaanaeem/Smart-Video-Downloader/releases/download/v2.0.1/SmartVideoDownloaderSetup-v2.0.1.exe)
 
 ![Main Application Window](https://raw.githubusercontent.com/adnaanaeem/smart-video-downloader/main/screenshots/download_queue.png)
 
