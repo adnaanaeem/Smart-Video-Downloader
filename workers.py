@@ -207,22 +207,56 @@ class ThumbnailWorker(QObject):
 
 class DownloadWorker(QObject):
     def __init__(self, url, format_id, save_path, unique_id, cookies_path=None):
-        super().__init__(); self.signals = WorkerSignals(); self.url = url; self.format_id = format_id
-        self.save_path = save_path; self.unique_id = unique_id; self.cookies_path = cookies_path
+        super().__init__()
+        self.signals = WorkerSignals()
+        self.url = url
+        self.format_id = format_id
+        self.save_path = save_path
+        self.unique_id = unique_id
+        self.cookies_path = cookies_path
+
     def run(self):
         try:
-            cmd = ["yt-dlp.exe", self.url, "-f", self.format_id, "-o", self.save_path, "--progress", "--no-warnings", "--merge-output-format", "mp4"]
-            if self.cookies_path: cmd.extend(["--cookies", self.cookies_path])
+            # --- THIS IS THE CORRECTED COMMAND ---
+            # It tells yt-dlp to get the specified video format PLUS the best available audio
+            # and then merge them into an mp4. This is crucial for high-res formats.
+            format_selection = f"{self.format_id}+bestaudio/best"
+            cmd = [
+                "yt-dlp.exe", self.url,
+                "-f", format_selection,
+                "-o", self.save_path,
+                "--progress",
+                "--no-warnings",
+                "--merge-output-format", "mp4"
+            ]
+            # ------------------------------------
+
+            if self.cookies_path:
+                cmd.extend(["--cookies", self.cookies_path])
+            
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', creationflags=subprocess.CREATE_NO_WINDOW)
-            output_lines = []; progress_regex = re.compile(r"\[download\]\s+(?P<percent>[\d\.]+)%")
+            
+            output_lines = []
+            progress_regex = re.compile(r"\[download\]\s+(?P<percent>[\d\.]+)%")
+            
             for line in iter(process.stdout.readline, ''):
-                stripped_line = line.strip(); output_lines.append(stripped_line); self.signals.log.emit(stripped_line)
+                stripped_line = line.strip()
+                output_lines.append(stripped_line)
+                self.signals.log.emit(stripped_line)
+                
                 match = progress_regex.search(line)
-                if match: self.signals.progress.emit(self.unique_id, int(float(match.group("percent"))))
+                if match:
+                    self.signals.progress.emit(self.unique_id, int(float(match.group("percent"))))
+            
             process.wait()
-            if process.returncode == 0: self.signals.download_finished.emit(self.unique_id, True, STRINGS["SUCCESS_DOWNLOAD_COMPLETED"])
-            else: self.signals.download_finished.emit(self.unique_id, False, "\n".join(output_lines))
-        except Exception as e: self.signals.download_finished.emit(self.unique_id, False, str(e))
+            
+            if process.returncode == 0:
+                self.signals.download_finished.emit(self.unique_id, True, STRINGS["SUCCESS_DOWNLOAD_COMPLETED"])
+            else:
+                self.signals.download_finished.emit(self.unique_id, False, "\n".join(output_lines))
+        
+        except Exception as e:
+            self.signals.download_finished.emit(self.unique_id, False, str(e))
 
 class Mp3DownloadWorker(QObject):
     def __init__(self, url, save_path, unique_id, cookies_path=None):

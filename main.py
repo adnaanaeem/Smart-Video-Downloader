@@ -43,12 +43,7 @@ class SmartVideoDownloader(QMainWindow):
         self.fetched_data = None; self.download_items = {}; self.downloads_completed = 0; self.downloads_total = 0
         self.dependency_dialog = None; self.save_path = ""; self.cookies_path = None
         self.ffmpeg_found = os.path.exists(resource_path("ffmpeg.exe")); self.ytdlp_found = os.path.exists(resource_path("yt-dlp.exe"))
-        
-        # --- NEW LINES TO ADD ---
-        self.app_update_thread = None
-        self.version_thread = None
-        # ------------------------
-
+        self.app_update_thread = None; self.version_thread = None
         self._setup_ui(); self._load_settings(); self.check_dependencies()
 
     def _setup_ui(self):
@@ -202,8 +197,7 @@ class SmartVideoDownloader(QMainWindow):
             os.execl(sys.executable, sys.executable, *sys.argv)
 
     def _on_ytdlp_update_clicked(self):
-        if self.version_thread and self.version_thread.isRunning():
-            return
+        if self.version_thread and self.version_thread.isRunning(): return
         self.update_dialog = ModalDialog(STRINGS["DIALOG_TITLE_UPDATE_CHECK"], "...", {}, self); self.update_dialog.show()
         self.version_thread = QThread(); self.version_worker = VersionCheckWorker(); self.version_worker.moveToThread(self.version_thread)
         self.version_thread.started.connect(self.version_worker.run); self.version_worker.signals.version_checked.connect(self._on_ytdlp_version_checked)
@@ -221,14 +215,12 @@ class SmartVideoDownloader(QMainWindow):
             if dialog.exec() and dialog.result == "download": self._start_ytdlp_download(for_update=True)
 
     def _check_for_app_updates(self, silent=False):
-        if self.app_update_thread and self.app_update_thread.isRunning():
-            return
+        if self.app_update_thread and self.app_update_thread.isRunning(): return
         if not silent: self.update_dialog = ModalDialog(STRINGS["DIALOG_TITLE_UPDATE_CHECK"], "...", {}, self); self.update_dialog.show()
         self.app_update_thread = QThread(); self.app_update_worker = AppUpdateCheckWorker(config.APP_VERSION); self.app_update_worker.moveToThread(self.app_update_thread)
         self.app_update_thread.started.connect(self.app_update_worker.run); self.app_update_worker.signals.app_update_checked.connect(lambda latest_version: self._on_app_update_checked(latest_version, silent))
         self.app_update_worker.signals.app_update_checked.connect(self.app_update_thread.quit); self.app_update_worker.signals.app_update_checked.connect(self.app_update_worker.deleteLater)
         self.app_update_thread.finished.connect(self.app_update_thread.deleteLater)
-        # --- NEW LINE TO ADD ---
         self.app_update_thread.finished.connect(lambda: setattr(self, 'app_update_thread', None))
         self.app_update_thread.start()
         
@@ -301,45 +293,72 @@ class SmartVideoDownloader(QMainWindow):
         self.thumbnail_label.setPixmap(pixmap.scaled(self.thumbnail_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         
     def _populate_formats_table(self):
-        formats = self.fetched_data.get("formats", []); self.formats_table.setRowCount(0); qualities = set(); fmts = set()
-        video_formats = []; audio_formats = []
-        def sort_key(f): return f.get('height', 0) if f.get('height') is not None else 0
+        self.formats_table.setRowCount(0)
+        formats = self.fetched_data.get("formats", [])
+        qualities, fmts = set(), set()
+        
+        # This block correctly filters for the best-available stream per resolution and all audio streams
+        processed_formats = []
+        processed_resolutions = set()
+        def sort_key(f):
+            height = f.get('height', 0) if f.get('height') is not None else 0
+            tbr = f.get('tbr', 0) if f.get('tbr') is not None else 0 # Total bitrate as a tie-breaker
+            return (height, tbr)
+
         for fmt in sorted(formats, key=sort_key, reverse=True):
-            if fmt.get('vcodec') != 'none' and fmt.get('acodec') != 'none': video_formats.append(fmt)
-            elif fmt.get('vcodec') == 'none': audio_formats.append(fmt)
+            if fmt.get('vcodec') != 'none':
+                height = fmt.get('height')
+                if height and height not in processed_resolutions:
+                    processed_formats.append(fmt)
+                    processed_resolutions.add(height)
+            elif fmt.get('acodec') != 'none' and fmt.get('vcodec') == 'none':
+                processed_formats.append(fmt)
+
+        # --- THIS IS THE CORRECTED LOGIC BLOCK ---
+        # Separate the processed formats into video and audio for correct display order
+        video_formats = []
+        audio_formats = []
+        for fmt in processed_formats:
+            if fmt.get('vcodec') != 'none':
+                video_formats.append(fmt)
+            else:
+                audio_formats.append(fmt)
+        # --- END OF CORRECTION ---
 
         for fmt in video_formats:
             row = self.formats_table.rowCount(); self.formats_table.insertRow(row); quality = f"{fmt.get('height', 'Video')}p"
-            size_str = f"{fmt['filesize_approx'] / (1024*1024):.2f} MB" if fmt.get('filesize_approx') else "N/A"
+            size_str = f"{fmt.get('filesize_approx', 0) / (1024*1024):.2f} MB" if fmt.get('filesize_approx') else "N/A"
             qualities.add(quality); fmts.add(fmt.get('ext', 'N/A'))
             self.formats_table.setItem(row, 0, QTableWidgetItem(quality)); self.formats_table.setItem(row, 1, QTableWidgetItem(fmt.get('ext', 'N/A'))); self.formats_table.setItem(row, 2, QTableWidgetItem(size_str)); self.formats_table.setItem(row, 3, QTableWidgetItem(fmt.get('format_note', 'N/A')))
             download_btn = QPushButton(STRINGS["DOWNLOAD_BUTTON"]); download_btn.setObjectName("downloadButton"); download_btn.clicked.connect(lambda _, r=row, fid=fmt['format_id']: self._on_download_clicked(r, fid))
             container = QWidget(); layout = QHBoxLayout(container); layout.setContentsMargins(0,0,0,0); layout.setAlignment(Qt.AlignmentFlag.AlignCenter); layout.addWidget(download_btn)
             self.formats_table.setCellWidget(row, 4, container); self.formats_table.setRowHeight(row, download_btn.sizeHint().height() + 20)
 
-        mp3_row = self.formats_table.rowCount(); self.formats_table.insertRow(mp3_row)
-        self.formats_table.setItem(mp3_row, 0, QTableWidgetItem(STRINGS["TABLE_QUALITY_AUDIO"])); self.formats_table.setItem(mp3_row, 1, QTableWidgetItem(STRINGS["TABLE_FORMAT_MP3"]))
-        self.formats_table.setItem(mp3_row, 2, QTableWidgetItem(STRINGS["TABLE_SIZE_NA"])); self.formats_table.setItem(mp3_row, 3, QTableWidgetItem(STRINGS["TABLE_NOTE_BEST_AUDIO"]))
+        mp3_row_index = self.formats_table.rowCount(); self.formats_table.insertRow(mp3_row_index)
+        self.formats_table.setItem(mp3_row_index, 0, QTableWidgetItem(STRINGS["TABLE_QUALITY_AUDIO"])); self.formats_table.setItem(mp3_row_index, 1, QTableWidgetItem(STRINGS["TABLE_FORMAT_MP3"]))
+        self.formats_table.setItem(mp3_row_index, 2, QTableWidgetItem(STRINGS["TABLE_SIZE_NA"])); self.formats_table.setItem(mp3_row_index, 3, QTableWidgetItem(STRINGS["TABLE_NOTE_BEST_AUDIO"]))
         mp3_widget = QWidget(); mp3_layout = QHBoxLayout(mp3_widget); mp3_layout.setContentsMargins(0,0,0,0); mp3_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         mp3_btn = QPushButton(STRINGS["DOWNLOAD_BUTTON"]); mp3_btn.setObjectName("downloadButton")
-        if self.ffmpeg_found: mp3_btn.clicked.connect(lambda _, r=mp3_row: self._on_mp3_row_clicked(r))
+        if self.ffmpeg_found: mp3_btn.clicked.connect(lambda _, r=mp3_row_index: self._on_mp3_row_clicked(r))
         else: mp3_btn.setDisabled(True); mp3_btn.setToolTip("FFmpeg not found. Click '?' for help.")
         mp3_layout.addWidget(mp3_btn)
         if not self.ffmpeg_found:
             mp3_help = QPushButton("❓"); mp3_help.setObjectName("mp3HelpButton"); mp3_help.clicked.connect(self._show_ffmpeg_help); mp3_layout.addWidget(mp3_help)
-        self.formats_table.setCellWidget(mp3_row, 4, mp3_widget); self.formats_table.setRowHeight(mp3_row, mp3_btn.sizeHint().height() + 20)
+        self.formats_table.setCellWidget(mp3_row_index, 4, mp3_widget); self.formats_table.setRowHeight(mp3_row_index, mp3_btn.sizeHint().height() + 20)
         qualities.add(STRINGS["TABLE_QUALITY_AUDIO"]); fmts.add(STRINGS["TABLE_FORMAT_MP3"])
 
         for fmt in audio_formats:
             row = self.formats_table.rowCount(); self.formats_table.insertRow(row); quality = STRINGS["TABLE_QUALITY_AUDIO"]
-            size_str = f"{fmt['filesize_approx'] / (1024*1024):.2f} MB" if fmt.get('filesize_approx') else "N/A"
+            size_str = f"{fmt.get('filesize_approx', 0) / (1024*1024):.2f} MB" if fmt.get('filesize_approx') else "N/A"
             qualities.add(quality); fmts.add(fmt.get('ext', 'N/A'))
             self.formats_table.setItem(row, 0, QTableWidgetItem(quality)); self.formats_table.setItem(row, 1, QTableWidgetItem(fmt.get('ext', 'N/A'))); self.formats_table.setItem(row, 2, QTableWidgetItem(size_str)); self.formats_table.setItem(row, 3, QTableWidgetItem(fmt.get('format_note', 'N/A')))
             download_btn = QPushButton(STRINGS["DOWNLOAD_BUTTON"]); download_btn.setObjectName("downloadButton"); download_btn.clicked.connect(lambda _, r=row, fid=fmt['format_id']: self._on_download_clicked(r, fid))
             container = QWidget(); layout = QHBoxLayout(container); layout.setContentsMargins(0,0,0,0); layout.setAlignment(Qt.AlignmentFlag.AlignCenter); layout.addWidget(download_btn)
             self.formats_table.setCellWidget(row, 4, container); self.formats_table.setRowHeight(row, download_btn.sizeHint().height() + 20)
         
-        self.quality_filter.clear(); self.format_filter.clear(); self.quality_filter.addItems(["All"] + sorted(list(qualities), key=lambda x: -int(x.replace('p','').replace('Audio','0')))); self.format_filter.addItems(["All"] + sorted(list(fmts)))
+        self.quality_filter.clear(); self.format_filter.clear()
+        self.quality_filter.addItems(["All"] + sorted(list(qualities), key=lambda x: -int(re.sub(r'[^0-9]', '', x) or 0)))
+        self.format_filter.addItems(["All"] + sorted(list(fmts)))
         self._filter_table()
 
     def _filter_table(self):
