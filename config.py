@@ -2,7 +2,7 @@
 # Central configuration file for the application.
 
 APP_TITLE = "Smart Video Downloader"
-APP_VERSION = "v2.0.0"
+APP_VERSION = "v2.0.1"
 
 # --- Developer Info ---
 DEV_NAME = "Adnan Naeem"
