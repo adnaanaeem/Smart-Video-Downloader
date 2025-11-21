@@ -1,6 +1,6 @@
-# Smart Video Downloader v2.1.0
+# Smart Video Downloader v2.1.1
 
-[![Download Latest Version](https://img.shields.io/badge/Download-Latest%20Version-DC2626?style=for-the-badge&logo=download&logoColor=white)](https://github.com/adnaanaeem/Smart-Video-Downloader/releases/download/v2.1.0/SmartVideoDownloaderSetup-v2.1.0.exe)
+[![Download Latest Version](https://img.shields.io/badge/Download-Latest%20Version-DC2626?style=for-the-badge&logo=download&logoColor=white)](https://github.com/adnaanaeem/Smart-Video-Downloader/releases/download/v2.1.0/SmartVideoDownloaderSetup-v2.1.1.exe)
 
 ![Main Application Window](https://raw.githubusercontent.com/adnaanaeem/smart-video-downloader/main/screenshots/download_queue.png)
 
@@ -10,7 +10,7 @@ A modern, feature-rich desktop application for downloading videos and audio from
 
 ### What's New
 
-*   **v2.1.0 (Current):**
+*   **v2.1.1 (Current):**
     *   `fix:` Corrected a critical bug that caused downloads of high-resolution videos (1080p and above) to have no audio.
     *   `fix:` Resolved several `TypeError` and `AttributeError` crashes related to refactoring.
     *   `fix:` Improved UI consistency and error handling dialogs.
@@ -50,7 +50,7 @@ A modern, feature-rich desktop application for downloading videos and audio from
 ### Installation
 
 1.  Go to the [**Releases Page**](https://github.com/adnaanaeem/smart-video-downloader/releases/latest).
-2.  Download the `SmartVideoDownloaderSetup-v2.0.0.exe` file.
+2.  Download the `SmartVideoDownloaderSetup-v2.1.1.exe` file.
 3.  Run the installer. Windows Defender may show a warning; this is normal. Click `More info` -> `Run anyway` to proceed.
 
 ### Running from Source

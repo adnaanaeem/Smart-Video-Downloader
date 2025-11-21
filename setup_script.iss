@@ -1,17 +1,17 @@
-; Inno Setup Script for Smart Video Downloader v2.1.0
+; Inno Setup Script for Smart Video Downloader v2.1.1
 ; Created by Adnan Naeem
 
 [Setup]
 ; This unique ID must NOT change between versions.
 AppId={{C6A8E3A8-245B-44A7-927A-1A8C8F7E4B3F}}
 AppName=Smart Video Downloader
-AppVersion=2.1.0
+AppVersion=2.1.1
 AppPublisher=Adnan Naeem
 DefaultDirName={autopf}\Smart Video Downloader
 DisableProgramGroupPage=yes
 ; The folder where the final setup.exe will be saved.
 OutputDir=C:\ADNAN\YT-Downloader\Output
-OutputBaseFilename=SmartVideoDownloaderSetup-v2.1.0
+OutputBaseFilename=SmartVideoDownloaderSetup-v2.1.1
 SetupIconFile=C:\ADNAN\YT-Downloader\icon.ico
 Compression=lzma
 SolidCompression=yes

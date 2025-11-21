@@ -154,29 +154,48 @@ class YTDlpWorker(QObject):
         except Exception as e: self.signals.ytdlp_finished.emit(False, STRINGS["ERROR_YTDLP_DOWNLOAD_FAILED"].format(error=str(e)))
 
 class FFmpegDownloadWorker(QObject):
-    def __init__(self): super().__init__(); self.signals = WorkerSignals()
+    def __init__(self):
+        super().__init__()
+        self.signals = WorkerSignals()
+
     def run(self):
         zip_path = "ffmpeg.zip"
         try:
             self.signals.ytdlp_progress.emit(STRINGS["STATUS_DOWNLOADING_FFMPEG"])
-            response = requests.get(config.FFMPEG_URL, stream=True, timeout=15); total_size = int(response.headers.get('content-length', 0))
+            response = requests.get(config.FFMPEG_URL, stream=True, timeout=15)
+            total_size = int(response.headers.get('content-length', 0))
             with open(zip_path, "wb") as f:
                 downloaded_size = 0
                 for chunk in response.iter_content(chunk_size=8192):
-                    if chunk: f.write(chunk); downloaded_size += len(chunk)
-                    if total_size > 0: self.signals.ytdlp_progress.emit(STRINGS["STATUS_DOWNLOADING_FFMPEG_PERCENT"].format(percent=int(100 * downloaded_size / total_size)))
+                    if chunk:
+                        f.write(chunk)
+                        downloaded_size += len(chunk)
+                        if total_size > 0:
+                            self.signals.ytdlp_progress.emit(STRINGS["STATUS_DOWNLOADING_FFMPEG_PERCENT"].format(percent=int(100 * downloaded_size / total_size)))
             
             self.signals.ytdlp_progress.emit(STRINGS["STATUS_EXTRACTING_FFMPEG"])
+            
+            # --- THIS IS THE CORRECTED LOGIC ---
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 for member in zip_ref.namelist():
                     if member.endswith('bin/ffmpeg.exe'):
-                        source = zip_ref.open(member)
-                        with open("ffmpeg.exe", "wb") as target: target.write(source.read())
+                        # This safely extracts the file to the current directory
+                        zip_ref.extract(member, path=".")
+                        # This moves it from its extracted subfolder to the root
+                        os.rename(member, "ffmpeg.exe")
+                        # Clean up the empty directory structure
+                        os.rmdir(os.path.dirname(member))
                         break
+            # The 'with' statement guarantees the zip_path is closed here.
+            # ------------------------------------
+
             os.remove(zip_path)
             self.signals.ytdlp_finished.emit(True, STRINGS["SUCCESS_FFMPEG_DOWNLOADED"])
+            
         except Exception as e:
-            if os.path.exists(zip_path): os.remove(zip_path)
+            # Cleanup in case of failure
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
             self.signals.ytdlp_finished.emit(False, STRINGS["ERROR_FFMPEG_DOWNLOAD_FAILED"].format(error=str(e)))
 
 class FetchWorker(QObject):
