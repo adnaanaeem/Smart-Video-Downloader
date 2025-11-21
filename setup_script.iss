@@ -38,3 +38,4 @@ Filename: "{app}\Smart Video Downloader.exe"; Description: "{cm:LaunchProgram,Sm
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
+

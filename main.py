@@ -488,3 +488,10 @@ if __name__ == '__main__':
     window = SmartVideoDownloader()
     window.show()
     sys.exit(app.exec())
+
+
+
+
+
+    # Command for building app with PyInstaller:
+    # pyinstaller --name "Smart Video Downloader" --onefile --windowed --icon="icon.ico" --add-data "icon.ico;." --add-data "icon.png;." main.py
