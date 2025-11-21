@@ -26,6 +26,8 @@ STRINGS = {
     "TABLE_FORMAT_MP3": "mp3",
     "TABLE_SIZE_NA": "~",
     "TABLE_NOTE_BEST_AUDIO": "Best Audio Quality",
+     "TABLE_NOTE_AUDIO_LANG": "{lang} Audio", # <-- NEW
+    "TABLE_NOTE_INCLUDES_AUDIO": "Includes Audio", # <-- NEW
     "MP3_FORMAT_DETAILS": "MP3 (Best Audio)",
     
     # --- Menu ---

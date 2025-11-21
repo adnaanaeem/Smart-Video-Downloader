@@ -8,9 +8,18 @@ A modern, feature-rich desktop application for downloading videos and audio from
 
 ---
 
-### What's New in v2.0
+### What's New
 
-Version 2.0 is a complete architectural overhaul, focusing on user experience, expanded functionality, and professional software design patterns.
+*   **v2.1.0 (Current):**
+    *   `fix:` Corrected a critical bug that caused downloads of high-resolution videos (1080p and above) to have no audio.
+    *   `fix:` Resolved several `TypeError` and `AttributeError` crashes related to refactoring.
+    *   `fix:` Improved UI consistency and error handling dialogs.
+
+*   **v2.0.0:**
+    *   Major architectural overhaul with isolated modules for UI, styling, configuration, and localization.
+    *   Added support for hundreds of sites (TikTok, Instagram, etc.).
+    *   Implemented an application auto-updater and mandatory dependency downloader for `yt-dlp` and `ffmpeg`.
+    *   Added contextual error handling and help buttons.
 
 *   **Expanded Site Support:** Now officially supports hundreds of sites beyond YouTube, including TikTok, Instagram, Facebook, Dailymotion, and more.
 *   **Application Auto-Updater:** The app now checks for new versions on startup and provides a simple, non-intrusive prompt to update.
@@ -25,6 +34,7 @@ Version 2.0 is a complete architectural overhaul, focusing on user experience, e
 
 *   **Modern & Intuitive UI:** A clean, dark-themed interface built with PyQt6.
 *   **Download Videos & Audio:** Fetch a list of all available video and audio formats.
+*   **Multi-Language Audio Support:** For videos with multiple audio tracks, you can now choose which language to download.
 *   **MP3 Conversion:** Download and convert any video to a high-quality MP3 file.
 *   **Private Video Support:** Download age-restricted or members-only content by providing a single, consolidated `cookies.txt` file.
 *   **Persistent User Settings:** Remembers your last-used save location and cookies file between sessions.
@@ -41,7 +51,7 @@ Version 2.0 is a complete architectural overhaul, focusing on user experience, e
 
 1.  Go to the [**Releases Page**](https://github.com/adnaanaeem/smart-video-downloader/releases/latest).
 2.  Download the `SmartVideoDownloaderSetup-v2.0.0.exe` file.
-3.  Run the installer and follow the on-screen instructions.
+3.  Run the installer. Windows Defender may show a warning; this is normal. Click `More info` -> `Run anyway` to proceed.
 
 ### Running from Source
 

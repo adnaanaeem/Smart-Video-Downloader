@@ -40,7 +40,7 @@ class ModalDialog(QDialog):
         title_layout.addWidget(title_label); title_layout.addStretch(); title_layout.addWidget(close_btn); main_layout.addWidget(title_bar)
         
         content_widget = QLabel(content); content_widget.setWordWrap(True); content_widget.setObjectName("modalContentLabel"); content_widget.setContentsMargins(15, 5, 15, 5)
-        content_widget.setOpenExternalLinks(True) # Allow links to be clicked
+        content_widget.setOpenExternalLinks(True)
 
         if is_scrollable:
             scroll_area = QScrollArea(); scroll_area.setObjectName("descriptionScrollArea"); scroll_area.setWidgetResizable(True); scroll_area.setWidget(content_widget)
@@ -127,23 +127,17 @@ class VersionCheckWorker(QObject):
 
 class AppUpdateCheckWorker(QObject):
     def __init__(self, current_version):
-        super().__init__()
-        self.signals = WorkerSignals()
-        self.current_version = current_version
+        super().__init__(); self.signals = WorkerSignals(); self.current_version = current_version
     def run(self):
         try:
             response = requests.get(config.APP_API_URL, timeout=5)
             if response.status_code == 200:
                 latest_version_str = response.json().get("tag_name", "v0.0.0")
-                # Use a robust version comparison
                 if parse_version(latest_version_str) > parse_version(self.current_version):
                     self.signals.app_update_checked.emit(latest_version_str)
-                else:
-                    self.signals.app_update_checked.emit("") # Explicitly signal "no update"
-            else:
-                self.signals.app_update_checked.emit("") # Signal completion even on network error
-        except Exception:
-            self.signals.app_update_checked.emit("") # Signal completion on any error
+                else: self.signals.app_update_checked.emit("")
+            else: self.signals.app_update_checked.emit("")
+        except Exception: self.signals.app_update_checked.emit("")
 
 class YTDlpWorker(QObject):
     def __init__(self): super().__init__(); self.signals = WorkerSignals()
@@ -206,57 +200,38 @@ class ThumbnailWorker(QObject):
         except Exception: pass
 
 class DownloadWorker(QObject):
-    def __init__(self, url, format_id, save_path, unique_id, cookies_path=None):
+    def __init__(self, url, video_id, audio_id, save_path, unique_id, cookies_path=None):
         super().__init__()
         self.signals = WorkerSignals()
         self.url = url
-        self.format_id = format_id
+        self.video_id = video_id
+        self.audio_id = audio_id
         self.save_path = save_path
         self.unique_id = unique_id
         self.cookies_path = cookies_path
 
     def run(self):
         try:
-            # --- THIS IS THE CORRECTED COMMAND ---
-            # It tells yt-dlp to get the specified video format PLUS the best available audio
-            # and then merge them into an mp4. This is crucial for high-res formats.
-            format_selection = f"{self.format_id}+bestaudio/best"
-            cmd = [
-                "yt-dlp.exe", self.url,
-                "-f", format_selection,
-                "-o", self.save_path,
-                "--progress",
-                "--no-warnings",
-                "--merge-output-format", "mp4"
-            ]
-            # ------------------------------------
+            if self.audio_id:
+                format_selection = f"{self.video_id}+{self.audio_id}"
+            else:
+                format_selection = self.video_id
 
-            if self.cookies_path:
-                cmd.extend(["--cookies", self.cookies_path])
+            cmd = ["yt-dlp.exe", self.url, "-f", format_selection, "-o", self.save_path, "--progress", "--no-warnings", "--merge-output-format", "mp4"]
+            if self.cookies_path: cmd.extend(["--cookies", self.cookies_path])
             
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', creationflags=subprocess.CREATE_NO_WINDOW)
-            
-            output_lines = []
-            progress_regex = re.compile(r"\[download\]\s+(?P<percent>[\d\.]+)%")
-            
+            output_lines = []; progress_regex = re.compile(r"\[download\]\s+(?P<percent>[\d\.]+)%")
             for line in iter(process.stdout.readline, ''):
-                stripped_line = line.strip()
-                output_lines.append(stripped_line)
-                self.signals.log.emit(stripped_line)
-                
+                stripped_line = line.strip(); output_lines.append(stripped_line); self.signals.log.emit(stripped_line)
                 match = progress_regex.search(line)
-                if match:
-                    self.signals.progress.emit(self.unique_id, int(float(match.group("percent"))))
+                if match: self.signals.progress.emit(self.unique_id, int(float(match.group("percent"))))
             
             process.wait()
             
-            if process.returncode == 0:
-                self.signals.download_finished.emit(self.unique_id, True, STRINGS["SUCCESS_DOWNLOAD_COMPLETED"])
-            else:
-                self.signals.download_finished.emit(self.unique_id, False, "\n".join(output_lines))
-        
-        except Exception as e:
-            self.signals.download_finished.emit(self.unique_id, False, str(e))
+            if process.returncode == 0: self.signals.download_finished.emit(self.unique_id, True, STRINGS["SUCCESS_DOWNLOAD_COMPLETED"])
+            else: self.signals.download_finished.emit(self.unique_id, False, "\n".join(output_lines))
+        except Exception as e: self.signals.download_finished.emit(self.unique_id, False, str(e))
 
 class Mp3DownloadWorker(QObject):
     def __init__(self, url, save_path, unique_id, cookies_path=None):

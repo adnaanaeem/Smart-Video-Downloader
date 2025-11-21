@@ -63,7 +63,7 @@ class SmartVideoDownloader(QMainWindow):
         header = QWidget(); header_layout = QHBoxLayout(header); header_layout.setContentsMargins(0, 0, 0, 15); header_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         icon_label = QLabel(); icon_png_path = resource_path("icon.png")
         if os.path.exists(icon_png_path): icon_label.setPixmap(QPixmap(icon_png_path))
-        icon_label.setFixedSize(108, 108); icon_label.setScaledContents(True)
+        icon_label.setFixedSize(36, 36); icon_label.setScaledContents(True)
         shadow = QGraphicsDropShadowEffect(self); shadow.setColor(QColor(THEME["PRIMARY_ACCENT"])); shadow.setBlurRadius(20); shadow.setOffset(0, 0); icon_label.setGraphicsEffect(shadow)
         title_label = QLabel(config.APP_TITLE); title_label.setObjectName("headerTitle")
         self.menu_button = QPushButton(STRINGS["MENU_BUTTON"]); self.menu_button.setObjectName("menuButton"); self.menu_button.setFixedSize(100, 36)
@@ -202,8 +202,7 @@ class SmartVideoDownloader(QMainWindow):
         self.version_thread = QThread(); self.version_worker = VersionCheckWorker(); self.version_worker.moveToThread(self.version_thread)
         self.version_thread.started.connect(self.version_worker.run); self.version_worker.signals.version_checked.connect(self._on_ytdlp_version_checked)
         self.version_worker.signals.version_checked.connect(self.version_thread.quit); self.version_worker.signals.version_checked.connect(self.version_worker.deleteLater)
-        self.version_thread.finished.connect(self.version_thread.deleteLater)
-        self.version_thread.finished.connect(lambda: setattr(self, 'version_thread', None))
+        self.version_thread.finished.connect(self.version_thread.deleteLater); self.version_thread.finished.connect(lambda: setattr(self, 'version_thread', None))
         self.version_thread.start()
 
     def _on_ytdlp_version_checked(self, local_version, latest_version):
@@ -220,8 +219,7 @@ class SmartVideoDownloader(QMainWindow):
         self.app_update_thread = QThread(); self.app_update_worker = AppUpdateCheckWorker(config.APP_VERSION); self.app_update_worker.moveToThread(self.app_update_thread)
         self.app_update_thread.started.connect(self.app_update_worker.run); self.app_update_worker.signals.app_update_checked.connect(lambda latest_version: self._on_app_update_checked(latest_version, silent))
         self.app_update_worker.signals.app_update_checked.connect(self.app_update_thread.quit); self.app_update_worker.signals.app_update_checked.connect(self.app_update_worker.deleteLater)
-        self.app_update_thread.finished.connect(self.app_update_thread.deleteLater)
-        self.app_update_thread.finished.connect(lambda: setattr(self, 'app_update_thread', None))
+        self.app_update_thread.finished.connect(self.app_update_thread.deleteLater); self.app_update_thread.finished.connect(lambda: setattr(self, 'app_update_thread', None))
         self.app_update_thread.start()
         
     def _on_app_update_checked(self, latest_version, silent):
@@ -291,70 +289,44 @@ class SmartVideoDownloader(QMainWindow):
 
     def _set_thumbnail(self, pixmap):
         self.thumbnail_label.setPixmap(pixmap.scaled(self.thumbnail_label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        
+
     def _populate_formats_table(self):
         self.formats_table.setRowCount(0)
-        formats = self.fetched_data.get("formats", [])
-        qualities, fmts = set(), set()
+        formats = self.fetched_data.get("formats", []); qualities = set(); fmts = set()
         
-        # This block correctly filters for the best-available stream per resolution and all audio streams
-        processed_formats = []
-        processed_resolutions = set()
-        def sort_key(f):
-            height = f.get('height', 0) if f.get('height') is not None else 0
-            tbr = f.get('tbr', 0) if f.get('tbr') is not None else 0 # Total bitrate as a tie-breaker
-            return (height, tbr)
+        video_formats = []; audio_formats = []; merged_formats = []
+        for f in formats:
+            if f.get('vcodec') != 'none' and f.get('acodec') != 'none': merged_formats.append(f)
+            elif f.get('vcodec') != 'none': video_formats.append(f)
+            elif f.get('acodec') != 'none': audio_formats.append(f)
 
-        for fmt in sorted(formats, key=sort_key, reverse=True):
-            if fmt.get('vcodec') != 'none':
-                height = fmt.get('height')
-                if height and height not in processed_resolutions:
-                    processed_formats.append(fmt)
-                    processed_resolutions.add(height)
-            elif fmt.get('acodec') != 'none' and fmt.get('vcodec') == 'none':
-                processed_formats.append(fmt)
+        def sort_key(f): return f.get('height', 0) if f.get('height') is not None else 0
+        video_formats.sort(key=sort_key, reverse=True)
+        merged_formats.sort(key=sort_key, reverse=True)
 
-        # --- THIS IS THE CORRECTED LOGIC BLOCK ---
-        # Separate the processed formats into video and audio for correct display order
-        video_formats = []
-        audio_formats = []
-        for fmt in processed_formats:
-            if fmt.get('vcodec') != 'none':
-                video_formats.append(fmt)
-            else:
-                audio_formats.append(fmt)
-        # --- END OF CORRECTION ---
-
-        for fmt in video_formats:
-            row = self.formats_table.rowCount(); self.formats_table.insertRow(row); quality = f"{fmt.get('height', 'Video')}p"
-            size_str = f"{fmt.get('filesize_approx', 0) / (1024*1024):.2f} MB" if fmt.get('filesize_approx') else "N/A"
-            qualities.add(quality); fmts.add(fmt.get('ext', 'N/A'))
-            self.formats_table.setItem(row, 0, QTableWidgetItem(quality)); self.formats_table.setItem(row, 1, QTableWidgetItem(fmt.get('ext', 'N/A'))); self.formats_table.setItem(row, 2, QTableWidgetItem(size_str)); self.formats_table.setItem(row, 3, QTableWidgetItem(fmt.get('format_note', 'N/A')))
-            download_btn = QPushButton(STRINGS["DOWNLOAD_BUTTON"]); download_btn.setObjectName("downloadButton"); download_btn.clicked.connect(lambda _, r=row, fid=fmt['format_id']: self._on_download_clicked(r, fid))
-            container = QWidget(); layout = QHBoxLayout(container); layout.setContentsMargins(0,0,0,0); layout.setAlignment(Qt.AlignmentFlag.AlignCenter); layout.addWidget(download_btn)
-            self.formats_table.setCellWidget(row, 4, container); self.formats_table.setRowHeight(row, download_btn.sizeHint().height() + 20)
-
-        mp3_row_index = self.formats_table.rowCount(); self.formats_table.insertRow(mp3_row_index)
-        self.formats_table.setItem(mp3_row_index, 0, QTableWidgetItem(STRINGS["TABLE_QUALITY_AUDIO"])); self.formats_table.setItem(mp3_row_index, 1, QTableWidgetItem(STRINGS["TABLE_FORMAT_MP3"]))
-        self.formats_table.setItem(mp3_row_index, 2, QTableWidgetItem(STRINGS["TABLE_SIZE_NA"])); self.formats_table.setItem(mp3_row_index, 3, QTableWidgetItem(STRINGS["TABLE_NOTE_BEST_AUDIO"]))
-        mp3_widget = QWidget(); mp3_layout = QHBoxLayout(mp3_widget); mp3_layout.setContentsMargins(0,0,0,0); mp3_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        mp3_btn = QPushButton(STRINGS["DOWNLOAD_BUTTON"]); mp3_btn.setObjectName("downloadButton")
-        if self.ffmpeg_found: mp3_btn.clicked.connect(lambda _, r=mp3_row_index: self._on_mp3_row_clicked(r))
-        else: mp3_btn.setDisabled(True); mp3_btn.setToolTip("FFmpeg not found. Click '?' for help.")
-        mp3_layout.addWidget(mp3_btn)
-        if not self.ffmpeg_found:
-            mp3_help = QPushButton("❓"); mp3_help.setObjectName("mp3HelpButton"); mp3_help.clicked.connect(self._show_ffmpeg_help); mp3_layout.addWidget(mp3_help)
-        self.formats_table.setCellWidget(mp3_row_index, 4, mp3_widget); self.formats_table.setRowHeight(mp3_row_index, mp3_btn.sizeHint().height() + 20)
+        # 1. Add combined video + audio entries
+        if video_formats and audio_formats:
+            unique_langs = sorted(list(set(a.get('language') for a in audio_formats if a.get('language'))))
+            best_audio = max(audio_formats, key=lambda a: a.get('abr', 0))
+            for v_fmt in video_formats:
+                for lang in unique_langs:
+                    best_lang_audio = next((a for a in sorted(audio_formats, key=lambda x: x.get('abr',0), reverse=True) if a.get('language') == lang), None)
+                    if best_lang_audio: self._add_format_row(v_fmt, audio_format=best_lang_audio)
+                if not unique_langs: self._add_format_row(v_fmt, audio_format=best_audio, is_best_audio=True)
+        
+        # 2. Add pre-merged formats
+        for fmt in merged_formats: self._add_format_row(fmt)
+        
+        # 3. Add MP3 option
+        self._add_mp3_row()
         qualities.add(STRINGS["TABLE_QUALITY_AUDIO"]); fmts.add(STRINGS["TABLE_FORMAT_MP3"])
+        
+        # 4. Add other audio-only formats
+        for fmt in audio_formats: self._add_format_row(fmt)
 
-        for fmt in audio_formats:
-            row = self.formats_table.rowCount(); self.formats_table.insertRow(row); quality = STRINGS["TABLE_QUALITY_AUDIO"]
-            size_str = f"{fmt.get('filesize_approx', 0) / (1024*1024):.2f} MB" if fmt.get('filesize_approx') else "N/A"
-            qualities.add(quality); fmts.add(fmt.get('ext', 'N/A'))
-            self.formats_table.setItem(row, 0, QTableWidgetItem(quality)); self.formats_table.setItem(row, 1, QTableWidgetItem(fmt.get('ext', 'N/A'))); self.formats_table.setItem(row, 2, QTableWidgetItem(size_str)); self.formats_table.setItem(row, 3, QTableWidgetItem(fmt.get('format_note', 'N/A')))
-            download_btn = QPushButton(STRINGS["DOWNLOAD_BUTTON"]); download_btn.setObjectName("downloadButton"); download_btn.clicked.connect(lambda _, r=row, fid=fmt['format_id']: self._on_download_clicked(r, fid))
-            container = QWidget(); layout = QHBoxLayout(container); layout.setContentsMargins(0,0,0,0); layout.setAlignment(Qt.AlignmentFlag.AlignCenter); layout.addWidget(download_btn)
-            self.formats_table.setCellWidget(row, 4, container); self.formats_table.setRowHeight(row, download_btn.sizeHint().height() + 20)
+        for row in range(self.formats_table.rowCount()):
+            qualities.add(self.formats_table.item(row, 0).text())
+            fmts.add(self.formats_table.item(row, 1).text())
         
         self.quality_filter.clear(); self.format_filter.clear()
         self.quality_filter.addItems(["All"] + sorted(list(qualities), key=lambda x: -int(re.sub(r'[^0-9]', '', x) or 0)))
@@ -369,21 +341,64 @@ class SmartVideoDownloader(QMainWindow):
             else: self.formats_table.setRowHidden(i, True)
         self.empty_filter_label.setVisible(rows_visible == 0); self.formats_table.setVisible(rows_visible > 0)
 
-    def _on_download_clicked(self, row, format_id):
-        quality = self.formats_table.item(row, 0).text(); safe_title = re.sub(r'[\\/*?:"<>|]', "", self.fetched_data['title'])
-        filename = f"{safe_title} - {quality}.mp4"; full_path = os.path.join(self.save_path, filename); proceed = not os.path.exists(full_path)
+    def _add_format_row(self, video_format, audio_format=None, is_best_audio=False):
+        row = self.formats_table.rowCount(); self.formats_table.insertRow(row)
+        is_video = video_format.get('vcodec') != 'none'
+        
+        if is_video:
+            quality = f"{video_format.get('height')}p"; ext = video_format.get('ext', 'mp4'); note = STRINGS["TABLE_NOTE_INCLUDES_AUDIO"]
+            v_id = video_format['format_id']; a_id = None
+            if audio_format:
+                a_id = audio_format['format_id']
+                if is_best_audio: note = STRINGS["TABLE_NOTE_BEST_AUDIO"]
+                else: note = STRINGS["TABLE_NOTE_AUDIO_LANG"].format(lang=audio_format.get('language_name', audio_format.get('language', '')))
+        else: quality = STRINGS["TABLE_QUALITY_AUDIO"]; ext = video_format.get('ext'); note = video_format.get('format_note', ''); v_id = video_format['format_id']; a_id = None
+            
+        size_str = f"{(video_format.get('filesize_approx', 0) + (audio_format.get('filesize_approx', 0) if audio_format else 0)) / (1024*1024):.2f} MB" if video_format.get('filesize_approx') else "N/A"
+
+        self.formats_table.setItem(row, 0, QTableWidgetItem(quality)); self.formats_table.setItem(row, 1, QTableWidgetItem(ext)); self.formats_table.setItem(row, 2, QTableWidgetItem(size_str)); self.formats_table.setItem(row, 3, QTableWidgetItem(note))
+        download_btn = QPushButton(STRINGS["DOWNLOAD_BUTTON"]); download_btn.setObjectName("downloadButton"); download_btn.clicked.connect(lambda _, r=row, vid=v_id, aid=a_id: self._on_download_clicked(r, vid, aid))
+        container = QWidget(); layout = QHBoxLayout(container); layout.setContentsMargins(0,0,0,0); layout.setAlignment(Qt.AlignmentFlag.AlignCenter); layout.addWidget(download_btn)
+        self.formats_table.setCellWidget(row, 4, container); self.formats_table.setRowHeight(row, download_btn.sizeHint().height() + 20)
+
+    def _add_mp3_row(self):
+        mp3_row_index = self.formats_table.rowCount(); self.formats_table.insertRow(mp3_row_index)
+        self.formats_table.setItem(mp3_row_index, 0, QTableWidgetItem(STRINGS["TABLE_QUALITY_AUDIO"])); self.formats_table.setItem(mp3_row_index, 1, QTableWidgetItem(STRINGS["TABLE_FORMAT_MP3"]))
+        self.formats_table.setItem(mp3_row_index, 2, QTableWidgetItem(STRINGS["TABLE_SIZE_NA"])); self.formats_table.setItem(mp3_row_index, 3, QTableWidgetItem(STRINGS["TABLE_NOTE_BEST_AUDIO"]))
+        mp3_widget = QWidget(); mp3_layout = QHBoxLayout(mp3_widget); mp3_layout.setContentsMargins(0,0,0,0); mp3_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        mp3_btn = QPushButton(STRINGS["DOWNLOAD_BUTTON"]); mp3_btn.setObjectName("downloadButton")
+        if self.ffmpeg_found: mp3_btn.clicked.connect(lambda _, r=mp3_row_index: self._on_mp3_row_clicked(r))
+        else: mp3_btn.setDisabled(True); mp3_btn.setToolTip("FFmpeg not found. Click '?' for help.")
+        mp3_layout.addWidget(mp3_btn)
+        if not self.ffmpeg_found:
+            mp3_help = QPushButton("❓"); mp3_help.setObjectName("mp3HelpButton"); mp3_help.clicked.connect(self._show_ffmpeg_help); mp3_layout.addWidget(mp3_help)
+        self.formats_table.setCellWidget(mp3_row_index, 4, mp3_widget); self.formats_table.setRowHeight(mp3_row_index, mp3_btn.sizeHint().height() + 20)
+
+    def _on_download_clicked(self, row, video_id, audio_id=None):
+        quality = self.formats_table.item(row, 0).text(); ext = self.formats_table.item(row, 1).text(); safe_title = re.sub(r'[\\/*?:"<>|]', "", self.fetched_data['title'])
+        filename = f"{safe_title} - {quality}.{ext}"
+        if audio_id: filename = f"{safe_title} - {quality}.mp4"
+        full_path = os.path.join(self.save_path, filename); proceed = not os.path.exists(full_path)
         if not proceed:
             dialog = ModalDialog(STRINGS["DIALOG_TITLE_CONFIRM_OVERWRITE"], STRINGS["CONFIRM_OVERWRITE_CONTENT"].format(filename=filename), {STRINGS["OVERWRITE_BUTTON"]: "overwrite", "Cancel": "cancel"}, self)
             if dialog.exec() and dialog.result == "overwrite": proceed = True
-        if proceed: self._start_download_worker(row, format_id, full_path)
+        if proceed: self._start_download_worker(row, video_id, audio_id, full_path)
 
-    def _start_download_worker(self, row, format_id, save_path):
+    def _start_download_worker(self, row, video_id, audio_id, save_path):
         btn = self.formats_table.cellWidget(row, 4).findChild(QPushButton); btn.setText(STRINGS["QUEUED_STATUS"]); btn.setDisabled(True)
         if not self.downloads_queue_panel.isVisible(): self.downloads_queue_panel.show()
         self.downloads_total += 1; self._update_queue_counter()
-        quality = self.formats_table.item(row, 0).text(); fmt = self.formats_table.item(row, 1).text(); unique_id = f"{self.fetched_data['id']}-{format_id}"
-        item_widget = DownloadItem(self.fetched_data['title'], f"{quality} ({fmt})"); self.queue_list_layout.addWidget(item_widget); self.download_items[unique_id] = item_widget
-        self.dl_thread = QThread(); self.dl_worker = DownloadWorker(self.fetched_data['webpage_url'], format_id, save_path, unique_id, self.cookies_path); self.dl_worker.moveToThread(self.dl_thread); self.dl_thread.started.connect(self.dl_worker.run)
+        
+        quality = self.formats_table.item(row, 0).text(); note = self.formats_table.item(row, 3).text()
+        format_details = f"{quality} ({note})"
+        
+        unique_id = f"{self.fetched_data['id']}-{video_id}-{audio_id or ''}"
+        
+        item_widget = DownloadItem(self.fetched_data['title'], format_details); self.queue_list_layout.addWidget(item_widget); self.download_items[unique_id] = item_widget
+        
+        self.dl_thread = QThread(); self.dl_worker = DownloadWorker(self.fetched_data['webpage_url'], video_id, audio_id, save_path, unique_id, self.cookies_path)
+        self.dl_worker.moveToThread(self.dl_thread)
+        self.dl_thread.started.connect(self.dl_worker.run)
         self.dl_worker.signals.progress.connect(self._update_download_progress); self.dl_worker.signals.download_finished.connect(self._on_download_finished)
         self.dl_worker.signals.download_finished.connect(self.dl_thread.quit); self.dl_worker.signals.download_finished.connect(self.dl_worker.deleteLater)
         self.dl_thread.finished.connect(self.dl_thread.deleteLater); self.dl_thread.start()
@@ -410,69 +425,44 @@ class SmartVideoDownloader(QMainWindow):
     def _on_download_finished(self, unique_id, success, message):
         if unique_id in self.download_items:
             item = self.download_items[unique_id]
-            if success:
-                self.downloads_completed += 1
-                item.percentage_label.setText(STRINGS["COMPLETED_STATUS"])
-                item.progress_bar.setValue(100)
-                item.progress_bar.setProperty("status", "completed")
+            if success: self.downloads_completed += 1; item.percentage_label.setText(STRINGS["COMPLETED_STATUS"]); item.progress_bar.setValue(100); item.progress_bar.setProperty("status", "completed")
             else:
                 msg_lower = message.lower()
-                # --- THIS IS THE CORRECTED LOGIC ---
                 if any(keyword in msg_lower for keyword in ["private", "login", "members only", "subscribers", "sign in"]):
                     self._show_error(STRINGS["ERROR_FETCH_PRIVATE"], is_private=True)
                     item.title_label.setToolTip(STRINGS["PRIVATE_VIDEO_TOOLTIP"])
                 else:
-                    self._show_error(message) # Show other download errors as well
+                    self._show_error(message)
                     item.title_label.setToolTip(message)
-                
-                item.percentage_label.setText(STRINGS["FAILED_STATUS"])
-                item.progress_bar.setProperty("status", "failed")
-            
-            # This is a visual refresh for the progress bar color
-            item.progress_bar.style().unpolish(item.progress_bar)
-            item.progress_bar.style().polish(item.progress_bar)
-            
+                item.percentage_label.setText(STRINGS["FAILED_STATUS"]); item.progress_bar.setProperty("status", "failed")
+            item.progress_bar.style().unpolish(item.progress_bar); item.progress_bar.style().polish(item.progress_bar)
         self._update_queue_counter()
         
     def _update_queue_counter(self): self.progress_counter.setText(STRINGS["COMPLETED_COUNTER"].format(completed=self.downloads_completed, total=self.downloads_total))
     
     def _show_error(self, message, is_private=False):
-        # Clear any existing buttons from the previous error message
         for i in reversed(range(self.error_button_layout.count())): 
             item = self.error_button_layout.itemAt(i)
-            if item.widget():
-                item.widget().setParent(None)
-            else:
-                self.error_button_layout.removeItem(item)
+            if item.widget(): item.widget().setParent(None)
+            else: self.error_button_layout.removeItem(item)
 
-        # Main logic for displaying the error
         if len(str(message)) > 120:
             self.error_message_label.setText(STRINGS["ERROR_LONG_MESSAGE"])
-            details_btn = QPushButton(STRINGS["ERROR_DETAILS_BUTTON"])
-            details_btn.setObjectName("modalButton")
-            
-            # --- THIS IS THE CORRECTED LOGIC ---
+            details_btn = QPushButton(STRINGS["ERROR_DETAILS_BUTTON"]); details_btn.setObjectName("modalButton")
             def show_details_dialog():
                 buttons = {"OK": "ok"}
-                if is_private:
-                    buttons[STRINGS["ERROR_ADD_COOKIES_BUTTON"]] = "cookie_help"
-                
+                if is_private: buttons[STRINGS["ERROR_ADD_COOKIES_BUTTON"]] = "cookie_help"
                 dialog = ModalDialog(STRINGS["DIALOG_TITLE_ERROR_DETAILS"], str(message), buttons, is_scrollable=True, parent=self)
-                if dialog.exec() and dialog.result == "cookie_help":
-                    self._show_private_video_help()
-
+                if dialog.exec() and dialog.result == "cookie_help": self._show_private_video_help()
             details_btn.clicked.connect(show_details_dialog)
-            # --- END OF CORRECTION ---
-
             self.error_button_layout.addWidget(details_btn)
             self.error_button_widget.show()
         else:
             self.error_message_label.setText(str(message))
             self.error_button_widget.hide()
 
-        if is_private:
-            help_btn = QPushButton(STRINGS["ERROR_ADD_COOKIES_BUTTON"])
-            help_btn.setObjectName("modalButton")
+        if is_private and len(str(message)) <= 120:
+            help_btn = QPushButton(STRINGS["ERROR_ADD_COOKIES_BUTTON"]); help_btn.setObjectName("modalButton")
             help_btn.clicked.connect(self._show_private_video_help)
             self.error_button_layout.addWidget(help_btn)
             self.error_button_widget.show()
@@ -481,27 +471,15 @@ class SmartVideoDownloader(QMainWindow):
         self.error_panel.show()
 
     def _show_full_description(self):
-        if self.fetched_data:
-            dialog = ModalDialog(STRINGS["DIALOG_TITLE_FULL_DESCRIPTION"], self.fetched_data.get("description", STRINGS["NO_DESCRIPTION"]), {"Close": "close"}, is_scrollable=True, parent=self)
-            dialog.exec()
-
-    def _show_about_dialog(self):
-        ModalDialog(STRINGS["MENU_ABOUT"], STRINGS["ABOUT_CONTENT"].format(app_version=config.APP_VERSION), {"OK": "ok"}, parent=self).exec()
-
-    def _show_help_dialog(self):
-        ModalDialog(STRINGS["MENU_HELP"], STRINGS["HELP_CONTENT"], {"OK": "ok"}, is_scrollable=True, parent=self).exec()
-
+        if self.fetched_data: dialog = ModalDialog(STRINGS["DIALOG_TITLE_FULL_DESCRIPTION"], self.fetched_data.get("description", STRINGS["NO_DESCRIPTION"]), {"Close": "close"}, is_scrollable=True, parent=self); dialog.exec()
+    def _show_about_dialog(self): ModalDialog(STRINGS["MENU_ABOUT"], STRINGS["ABOUT_CONTENT"].format(app_version=config.APP_VERSION), {"OK": "ok"}, parent=self).exec()
+    def _show_help_dialog(self): ModalDialog(STRINGS["MENU_HELP"], STRINGS["HELP_CONTENT"], {"OK": "ok"}, is_scrollable=True, parent=self).exec()
     def _show_private_video_help(self):
         ModalDialog(STRINGS["DIALOG_TITLE_PRIVATE_VIDEO"], STRINGS["PRIVATE_VIDEO_HELP"], {"OK": "ok"}, is_scrollable=True, parent=self).exec()
-
     def _show_ffmpeg_help(self):
         dialog = ModalDialog(STRINGS["DIALOG_TITLE_FFMPEG_NOT_FOUND"], STRINGS["FFMPEG_HELP"], {STRINGS["DOWNLOAD_FFMPEG_BUTTON"]: "download", "Cancel": "cancel"}, parent=self)
-        if dialog.exec() and dialog.result == "download":
-            self._start_ffmpeg_download()
-
-    def _show_dev_dialog(self):
-        DeveloperDialog(self).exec()
-
+        if dialog.exec() and dialog.result == "download": self._start_ffmpeg_download()
+    def _show_dev_dialog(self): DeveloperDialog(self).exec()
     def closeEvent(self, event): self._save_settings(); super().closeEvent(event)
 
 if __name__ == '__main__':
