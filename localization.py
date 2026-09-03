@@ -15,6 +15,7 @@ STRINGS = {
     "FILTER_LABEL": "📊 Filter Formats",
     "QUALITY_LABEL": "Quality:",
     "FORMAT_LABEL": "Format:",
+    "LANGUAGE_LABEL": "Language:",
     "DOWNLOAD_BUTTON": "Download",
     "DOWNLOADS_QUEUE_TITLE": "Downloads Queue",
     "COMPLETED_COUNTER": "{completed} / {total} completed",
@@ -67,6 +68,8 @@ STRINGS = {
     "YTDLP_UPDATE_AVAILABLE": "A new version of yt-dlp is available.\n\nCurrent: {local_version}\nLatest: {latest_version}\n\nDownload and restart?",
     "YTDLP_UP_TO_DATE": "You have the latest version of yt-dlp!\nVersion: {local_version}",
     "DOWNLOAD_AND_RESTART_BUTTON": "Download & Restart",
+    "YTDLP_CORRUPT_REDOWNLOADING": "The bundled yt-dlp component appears to be corrupted or unreadable.\n\nRe-downloading it now to fix this automatically.",
+    "FFMPEG_CORRUPT_REDOWNLOADING": "The bundled FFmpeg component appears to be corrupted or unreadable.\n\nRe-downloading it now to fix this automatically.",
     
     "HELP_CONTENT": (
         "<b>General Usage:</b><br>"

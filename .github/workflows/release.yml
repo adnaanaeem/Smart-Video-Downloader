@@ -1,0 +1,113 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build executable with PyInstaller
+        run: >
+          pyinstaller --name "Smart Video Downloader" --onefile --windowed
+          --icon="icon.ico" --add-data "icon.ico;." --add-data "icon.png;."
+          main.py
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build Windows installer
+        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup_script.iss'
+        shell: pwsh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: Output/SmartVideoDownloaderSetup-Windows.exe
+
+  build-macos:
+    # Pinned to macos-14 (Apple Silicon/arm64) rather than the floating
+    # macos-latest alias, so the build target stays predictable.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Generate icon.icns from icon.png
+        run: |
+          mkdir icon.iconset
+          sips -z 16 16     icon.png --out icon.iconset/icon_16x16.png
+          sips -z 32 32     icon.png --out icon.iconset/icon_16x16@2x.png
+          sips -z 32 32     icon.png --out icon.iconset/icon_32x32.png
+          sips -z 64 64     icon.png --out icon.iconset/icon_32x32@2x.png
+          sips -z 128 128   icon.png --out icon.iconset/icon_128x128.png
+          sips -z 256 256   icon.png --out icon.iconset/icon_128x128@2x.png
+          sips -z 256 256   icon.png --out icon.iconset/icon_256x256.png
+          sips -z 512 512   icon.png --out icon.iconset/icon_256x256@2x.png
+          sips -z 512 512   icon.png --out icon.iconset/icon_512x512.png
+          sips -z 1024 1024 icon.png --out icon.iconset/icon_512x512@2x.png
+          iconutil -c icns icon.iconset -o icon.icns
+
+      - name: Build .app with PyInstaller
+        run: >
+          pyinstaller --name "Smart Video Downloader" --onefile --windowed
+          --icon="icon.icns" --add-data "icon.icns:." --add-data "icon.ico:."
+          --add-data "icon.png:." main.py
+
+      - name: Package .dmg
+        run: |
+          hdiutil create -volname "Smart Video Downloader" \
+            -srcfolder "dist/Smart Video Downloader.app" \
+            -ov -format UDZO "SmartVideoDownloader-macOS-arm64.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-installer
+          path: SmartVideoDownloader-macOS-arm64.dmg
+
+  publish-release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: dist-windows
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-installer
+          path: dist-macos
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist-windows/SmartVideoDownloaderSetup-Windows.exe
+            dist-macos/SmartVideoDownloader-macOS-arm64.dmg
+          generate_release_notes: true

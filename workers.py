@@ -19,6 +19,18 @@ from packaging.version import parse as parse_version
 import config
 from localization import STRINGS
 
+def get_bin_dir():
+    if getattr(sys, 'frozen', False): return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+IS_MAC = sys.platform.startswith("darwin")
+EXE_SUFFIX = "" if IS_MAC else ".exe"
+YTDLP_PATH = os.path.join(get_bin_dir(), f"yt-dlp{EXE_SUFFIX}")
+FFMPEG_PATH = os.path.join(get_bin_dir(), f"ffmpeg{EXE_SUFFIX}")
+
+# subprocess.CREATE_NO_WINDOW only exists on Windows; 0 is a documented no-op elsewhere.
+CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 # --- Custom Widgets & Dialogs ---
 class Spinner(QLabel):
     def __init__(self, parent=None):
@@ -101,6 +113,7 @@ class DownloadItem(QWidget):
 class WorkerSignals(QObject):
     finished = pyqtSignal(bool, object); progress = pyqtSignal(str, int); download_finished = pyqtSignal(str, bool, str); log = pyqtSignal(str); thumbnail_loaded = pyqtSignal(QPixmap)
     ytdlp_progress = pyqtSignal(str); ytdlp_finished = pyqtSignal(bool, str); version_checked = pyqtSignal(str, str); app_update_checked = pyqtSignal(str)
+    ffmpeg_health_checked = pyqtSignal(bool)
 
 class ProfilePictureWorker(QObject):
     def __init__(self, url): super().__init__(); self.signals = WorkerSignals(); self.url = url
@@ -115,8 +128,8 @@ class VersionCheckWorker(QObject):
     def run(self):
         local_version = "N/A"; latest_version = "N/A"
         try:
-            if os.path.exists("yt-dlp.exe"):
-                result = subprocess.run(["yt-dlp.exe", "--version"], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            if os.path.exists(YTDLP_PATH):
+                result = subprocess.run([YTDLP_PATH, "--version"], capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
                 if result.returncode == 0: local_version = result.stdout.strip()
         except Exception: pass
         try:
@@ -124,6 +137,17 @@ class VersionCheckWorker(QObject):
             if response.status_code == 200: latest_version = response.json().get("tag_name", "N/A")
         except Exception: pass
         self.signals.version_checked.emit(local_version, latest_version)
+
+class FFmpegHealthCheckWorker(QObject):
+    def __init__(self): super().__init__(); self.signals = WorkerSignals()
+    def run(self):
+        healthy = False
+        try:
+            if os.path.exists(FFMPEG_PATH):
+                result = subprocess.run([FFMPEG_PATH, "-version"], capture_output=True, text=True, creationflags=CREATE_NO_WINDOW, timeout=10)
+                healthy = result.returncode == 0
+        except Exception: pass
+        self.signals.ffmpeg_health_checked.emit(healthy)
 
 class AppUpdateCheckWorker(QObject):
     def __init__(self, current_version):
@@ -144,12 +168,14 @@ class YTDlpWorker(QObject):
     def run(self):
         try:
             self.signals.ytdlp_progress.emit(STRINGS["STATUS_DOWNLOADING_YTDLP"])
-            response = requests.get(config.YT_DLP_URL, stream=True, timeout=10); total_size = int(response.headers.get('content-length', 0))
-            with open("yt-dlp.exe", "wb") as f:
+            url = config.YT_DLP_URL_MAC if IS_MAC else config.YT_DLP_URL
+            response = requests.get(url, stream=True, timeout=10); total_size = int(response.headers.get('content-length', 0))
+            with open(YTDLP_PATH, "wb") as f:
                 downloaded_size = 0
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk: f.write(chunk); downloaded_size += len(chunk)
                     if total_size > 0: self.signals.ytdlp_progress.emit(STRINGS["STATUS_DOWNLOADING_YTDLP_PERCENT"].format(percent=int(100 * downloaded_size / total_size)))
+            if IS_MAC: os.chmod(YTDLP_PATH, 0o755)
             self.signals.ytdlp_finished.emit(True, STRINGS["SUCCESS_YTDLP_DOWNLOADED"])
         except Exception as e: self.signals.ytdlp_finished.emit(False, STRINGS["ERROR_YTDLP_DOWNLOAD_FAILED"].format(error=str(e)))
 
@@ -159,10 +185,11 @@ class FFmpegDownloadWorker(QObject):
         self.signals = WorkerSignals()
 
     def run(self):
-        zip_path = "ffmpeg.zip"
+        zip_path = os.path.join(get_bin_dir(), "ffmpeg.zip")
         try:
             self.signals.ytdlp_progress.emit(STRINGS["STATUS_DOWNLOADING_FFMPEG"])
-            response = requests.get(config.FFMPEG_URL, stream=True, timeout=15)
+            url = config.FFMPEG_URL_MAC if IS_MAC else config.FFMPEG_URL
+            response = requests.get(url, stream=True, timeout=15)
             total_size = int(response.headers.get('content-length', 0))
             with open(zip_path, "wb") as f:
                 downloaded_size = 0
@@ -172,23 +199,27 @@ class FFmpegDownloadWorker(QObject):
                         downloaded_size += len(chunk)
                         if total_size > 0:
                             self.signals.ytdlp_progress.emit(STRINGS["STATUS_DOWNLOADING_FFMPEG_PERCENT"].format(percent=int(100 * downloaded_size / total_size)))
-            
+
             self.signals.ytdlp_progress.emit(STRINGS["STATUS_EXTRACTING_FFMPEG"])
-            
-            # --- THIS IS THE CORRECTED LOGIC ---
+
+            # Windows (BtbN) build nests the binary under a versioned folder's bin/ subdir;
+            # macOS (evermeet.cx) build has a single "ffmpeg" file at the zip root.
+            extract_dir = get_bin_dir()
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 for member in zip_ref.namelist():
-                    if member.endswith('bin/ffmpeg.exe'):
-                        # This safely extracts the file to the current directory
-                        zip_ref.extract(member, path=".")
-                        # This moves it from its extracted subfolder to the root
-                        os.rename(member, "ffmpeg.exe")
-                        # Clean up the empty directory structure
-                        os.rmdir(os.path.dirname(member))
+                    is_target = member == 'ffmpeg' if IS_MAC else member.endswith('bin/ffmpeg.exe')
+                    if is_target:
+                        # This safely extracts the file to the app's own directory
+                        zip_ref.extract(member, path=extract_dir)
+                        # This moves it from its extracted subfolder to the root (os.replace, not os.rename,
+                        # since os.rename fails on Windows if FFMPEG_PATH already exists e.g. during a repair)
+                        os.replace(os.path.join(extract_dir, member), FFMPEG_PATH)
+                        # Clean up the now-empty extracted subdirectory structure, if any
+                        member_dir = os.path.dirname(member)
+                        if member_dir: os.rmdir(os.path.join(extract_dir, member_dir))
                         break
-            # The 'with' statement guarantees the zip_path is closed here.
-            # ------------------------------------
 
+            if IS_MAC: os.chmod(FFMPEG_PATH, 0o755)
             os.remove(zip_path)
             self.signals.ytdlp_finished.emit(True, STRINGS["SUCCESS_FFMPEG_DOWNLOADED"])
             
@@ -203,9 +234,9 @@ class FetchWorker(QObject):
         super().__init__(); self.signals = WorkerSignals(); self.url = url; self.cookies_path = cookies_path
     def run(self):
         try:
-            cmd = ["yt-dlp.exe", self.url, "--dump-json", "--no-playlist"]
+            cmd = [YTDLP_PATH, self.url, "--dump-json", "--no-playlist"]
             if self.cookies_path: cmd.extend(["--cookies", self.cookies_path])
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW)
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', creationflags=CREATE_NO_WINDOW)
             if result.returncode == 0: self.signals.finished.emit(True, json.loads(result.stdout))
             else: self.signals.finished.emit(False, (result.stderr or "") + (result.stdout or "") or STRINGS["ERROR_FETCH_GENERIC"])
         except Exception as e: self.signals.finished.emit(False, str(e))
@@ -236,10 +267,10 @@ class DownloadWorker(QObject):
             else:
                 format_selection = self.video_id
 
-            cmd = ["yt-dlp.exe", self.url, "-f", format_selection, "-o", self.save_path, "--progress", "--no-warnings", "--merge-output-format", "mp4"]
+            cmd = [YTDLP_PATH, self.url, "-f", format_selection, "-o", self.save_path, "--progress", "--no-warnings", "--merge-output-format", "mp4"]
             if self.cookies_path: cmd.extend(["--cookies", self.cookies_path])
             
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', creationflags=subprocess.CREATE_NO_WINDOW)
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', creationflags=CREATE_NO_WINDOW)
             output_lines = []; progress_regex = re.compile(r"\[download\]\s+(?P<percent>[\d\.]+)%")
             for line in iter(process.stdout.readline, ''):
                 stripped_line = line.strip(); output_lines.append(stripped_line); self.signals.log.emit(stripped_line)
@@ -258,9 +289,9 @@ class Mp3DownloadWorker(QObject):
         self.unique_id = unique_id; self.cookies_path = cookies_path
     def run(self):
         try:
-            cmd = ["yt-dlp.exe", self.url, "-x", "--audio-format", "mp3", "--audio-quality", "0", "-o", self.save_path, "--progress", "--no-warnings"]
+            cmd = [YTDLP_PATH, self.url, "-x", "--audio-format", "mp3", "--audio-quality", "0", "-o", self.save_path, "--progress", "--no-warnings"]
             if self.cookies_path: cmd.extend(["--cookies", self.cookies_path])
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', creationflags=subprocess.CREATE_NO_WINDOW)
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', creationflags=CREATE_NO_WINDOW)
             output_lines = []; progress_regex = re.compile(r"\[download\]\s+Destination:\s.*\s+\(frag\s\d+/\d+\)\n\[download\]\s+(?P<percent>[\d\.]+)%")
             dest_regex = re.compile(r"\[ExtractAudio\] Destination: (.*)")
             for line in iter(process.stdout.readline, ''):

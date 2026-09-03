@@ -21,7 +21,8 @@ from localization import STRINGS
 from styles import generate_stylesheet
 from workers import (
     Spinner, ModalDialog, DeveloperDialog, DownloadItem,
-    VersionCheckWorker, AppUpdateCheckWorker, YTDlpWorker, FFmpegDownloadWorker, FetchWorker, ThumbnailWorker, DownloadWorker, Mp3DownloadWorker
+    VersionCheckWorker, FFmpegHealthCheckWorker, AppUpdateCheckWorker, YTDlpWorker, FFmpegDownloadWorker, FetchWorker, ThumbnailWorker, DownloadWorker, Mp3DownloadWorker,
+    YTDLP_PATH, FFMPEG_PATH
 )
 
 # --- HELPER FUNCTIONS ---
@@ -42,9 +43,12 @@ class SmartVideoDownloader(QMainWindow):
         self.setWindowTitle(f"{config.APP_TITLE} {config.APP_VERSION}"); self.setWindowIcon(QIcon(resource_path("icon.ico"))); self.setMinimumSize(850, 700)
         self.fetched_data = None; self.download_items = {}; self.downloads_completed = 0; self.downloads_total = 0
         self.dependency_dialog = None; self.save_path = ""; self.cookies_path = None
-        self.ffmpeg_found = os.path.exists(resource_path("ffmpeg.exe")); self.ytdlp_found = os.path.exists(resource_path("yt-dlp.exe"))
-        self.app_update_thread = None; self.version_thread = None
-        self._setup_ui(); self._load_settings(); self.check_dependencies()
+        self.ffmpeg_found = os.path.exists(FFMPEG_PATH); self.ytdlp_found = os.path.exists(YTDLP_PATH)
+        self.app_update_thread = None; self.version_thread = None; self.ffmpeg_health_thread = None
+        self._setup_ui(); 
+        self._load_settings();
+        self.is_updating_ytdlp = False
+        self.check_dependencies()
 
     def _setup_ui(self):
         self.central_widget = QWidget(); self.central_widget.setObjectName("centralWidget"); self.setCentralWidget(self.central_widget)
@@ -137,8 +141,11 @@ class SmartVideoDownloader(QMainWindow):
         filter_label = QLabel(STRINGS["FILTER_LABEL"]); filter_label.setObjectName("filterLabel"); quality_label = QLabel(STRINGS["QUALITY_LABEL"]); quality_label.setObjectName("filterDropdownLabel")
         self.quality_filter = QComboBox(); self.quality_filter.currentIndexChanged.connect(self._filter_table); format_label = QLabel(STRINGS["FORMAT_LABEL"]); format_label.setObjectName("filterDropdownLabel")
         self.format_filter = QComboBox(); self.format_filter.currentIndexChanged.connect(self._filter_table)
+        language_label = QLabel(STRINGS["LANGUAGE_LABEL"]); language_label.setObjectName("filterDropdownLabel")
+        self.language_filter = QComboBox(); self.language_filter.currentIndexChanged.connect(self._filter_table)
         filter_layout.addWidget(filter_label); filter_layout.addStretch(); filter_layout.addWidget(quality_label); filter_layout.addWidget(self.quality_filter); filter_layout.addSpacing(10)
-        filter_layout.addWidget(format_label); filter_layout.addWidget(self.format_filter)
+        filter_layout.addWidget(format_label); filter_layout.addWidget(self.format_filter); filter_layout.addSpacing(10)
+        filter_layout.addWidget(language_label); filter_layout.addWidget(self.language_filter)
         self.formats_table = QTableWidget(); self.formats_table.setColumnCount(5); self.formats_table.setHorizontalHeaderLabels(["Quality", "Format", "Size", "Note", "Action"]); header = self.formats_table.horizontalHeader(); header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.formats_table.verticalHeader().hide(); self.formats_table.setAlternatingRowColors(True); self.formats_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection); self.formats_table.setFocusPolicy(Qt.FocusPolicy.NoFocus); self.formats_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.empty_filter_label = QLabel(STRINGS["NO_FORMATS_MATCH"]); self.empty_filter_label.setAlignment(Qt.AlignmentFlag.AlignCenter); self.empty_filter_label.setObjectName("emptyFilterLabel"); self.empty_filter_label.hide()
@@ -154,8 +161,8 @@ class SmartVideoDownloader(QMainWindow):
         queue_layout.addWidget(queue_header); queue_layout.addLayout(self.queue_list_layout); self.panel_layout.addWidget(self.downloads_queue_panel)
         
     def check_dependencies(self):
-        self.ytdlp_found = os.path.exists(resource_path("yt-dlp.exe"))
-        self.ffmpeg_found = os.path.exists(resource_path("ffmpeg.exe"))
+        self.ytdlp_found = os.path.exists(YTDLP_PATH)
+        self.ffmpeg_found = os.path.exists(FFMPEG_PATH)
         if not self.ytdlp_found or not self.ffmpeg_found:
             missing = []
             if not self.ytdlp_found: missing.append(STRINGS["COMPONENT_YTDLP"])
@@ -163,7 +170,10 @@ class SmartVideoDownloader(QMainWindow):
             dialog = ModalDialog(STRINGS["DIALOG_TITLE_SETUP"], STRINGS["SETUP_MISSING_DEPS"].format(missing_list='\n- '.join(missing)), {STRINGS["SETUP_DOWNLOAD_NOW"]: "download", STRINGS["SETUP_EXIT"]: "exit"}, self)
             if dialog.exec() and dialog.result == "download": self._start_dependency_downloads()
             else: QApplication.instance().quit()
-        else: self._check_for_app_updates(silent=True)
+        else:
+            self._check_for_app_updates(silent=True)
+            self._start_ytdlp_version_check(silent=True)
+            self._check_ffmpeg_health(silent=True)
 
     def _start_dependency_downloads(self):
         self.setEnabled(False)
@@ -184,9 +194,31 @@ class SmartVideoDownloader(QMainWindow):
         self.ffmpeg_worker.signals.ytdlp_finished.connect(self._on_ffmpeg_download_finished); self.ffmpeg_worker.signals.ytdlp_finished.connect(self.ffmpeg_thread.quit)
         self.ffmpeg_worker.signals.ytdlp_finished.connect(self.ffmpeg_worker.deleteLater); self.ffmpeg_thread.finished.connect(self.ffmpeg_thread.deleteLater); self.ffmpeg_thread.start()
 
+   # Replace your old _on_ytdlp_download_finished with this new one (around line 232)
     def _on_ytdlp_download_finished(self, success, message):
-        if not success: ModalDialog(STRINGS["DIALOG_TITLE_FAILED"], message, {"OK": "ok"}, self).exec(); self.close()
-        else: self.ytdlp_found = True; self.check_dependencies()
+        if not success:
+            ModalDialog(STRINGS["DIALOG_TITLE_FAILED"], message, {"OK": "ok"}, self).exec()
+            self.close()
+            return
+
+        self.ytdlp_found = True
+    
+        # Check if we were in 'update' mode
+        if self.is_updating_ytdlp:
+            self.is_updating_ytdlp = False # Reset the flag
+            # Show a success dialog and offer to restart (just like the ffmpeg handler)
+            dialog = ModalDialog(
+                STRINGS["DIALOG_TITLE_SUCCESS"],
+                STRINGS["DEPS_SUCCESS_RESTART"].format(component="yt-dlp"),
+                {STRINGS["RESTART_BUTTON"]: "restart"},
+                self
+            )
+            dialog.exec()
+            # The magic line that restarts the application to use the new file
+            os.execl(sys.executable, sys.executable, *sys.argv)
+        else:
+            # This is the original logic for the first-time setup
+            self.check_dependencies()
 
     def _on_ffmpeg_download_finished(self, success, message):
         if self.dependency_dialog: self.dependency_dialog.close(); self.setEnabled(True)
@@ -197,21 +229,47 @@ class SmartVideoDownloader(QMainWindow):
             os.execl(sys.executable, sys.executable, *sys.argv)
 
     def _on_ytdlp_update_clicked(self):
+        self._start_ytdlp_version_check(silent=False)
+
+    def _start_ytdlp_version_check(self, silent=False):
         if self.version_thread and self.version_thread.isRunning(): return
-        self.update_dialog = ModalDialog(STRINGS["DIALOG_TITLE_UPDATE_CHECK"], "...", {}, self); self.update_dialog.show()
+        self.update_dialog = None
+        if not silent: self.update_dialog = ModalDialog(STRINGS["DIALOG_TITLE_UPDATE_CHECK"], "...", {}, self); self.update_dialog.show()
         self.version_thread = QThread(); self.version_worker = VersionCheckWorker(); self.version_worker.moveToThread(self.version_thread)
-        self.version_thread.started.connect(self.version_worker.run); self.version_worker.signals.version_checked.connect(self._on_ytdlp_version_checked)
+        self.version_thread.started.connect(self.version_worker.run)
+        self.version_worker.signals.version_checked.connect(lambda lv, ltv: self._on_ytdlp_version_checked(lv, ltv, silent))
         self.version_worker.signals.version_checked.connect(self.version_thread.quit); self.version_worker.signals.version_checked.connect(self.version_worker.deleteLater)
         self.version_thread.finished.connect(self.version_thread.deleteLater); self.version_thread.finished.connect(lambda: setattr(self, 'version_thread', None))
         self.version_thread.start()
 
-    def _on_ytdlp_version_checked(self, local_version, latest_version):
-        self.update_dialog.close()
-        if local_version == "N/A" or latest_version == "N/A": ModalDialog(STRINGS["DIALOG_TITLE_UPDATE_CHECK"], STRINGS["YTDLP_UPDATE_FAILED"], {"OK": "ok"}, self).exec()
-        elif local_version == latest_version: ModalDialog(STRINGS["DIALOG_TITLE_UP_TO_DATE"], STRINGS["YTDLP_UP_TO_DATE"].format(local_version=local_version), {"OK": "ok"}, self).exec()
+    def _on_ytdlp_version_checked(self, local_version, latest_version, silent=False):
+        if self.update_dialog: self.update_dialog.close()
+        if local_version == "N/A" and self.ytdlp_found:
+            # The binary exists but couldn't run (--version failed) - treat as corrupted and self-repair.
+            ModalDialog(STRINGS["DIALOG_TITLE_SETUP"], STRINGS["YTDLP_CORRUPT_REDOWNLOADING"], {"OK": "ok"}, self).exec()
+            self.is_updating_ytdlp = True; self._start_ytdlp_download(for_update=True)
+        elif local_version == "N/A" or latest_version == "N/A":
+            if not silent: ModalDialog(STRINGS["DIALOG_TITLE_UPDATE_CHECK"], STRINGS["YTDLP_UPDATE_FAILED"], {"OK": "ok"}, self).exec()
+        elif local_version == latest_version:
+            if not silent: ModalDialog(STRINGS["DIALOG_TITLE_UP_TO_DATE"], STRINGS["YTDLP_UP_TO_DATE"].format(local_version=local_version), {"OK": "ok"}, self).exec()
         else:
             dialog = ModalDialog(STRINGS["DIALOG_TITLE_UPDATE_AVAILABLE"], STRINGS["YTDLP_UPDATE_AVAILABLE"].format(local_version=local_version, latest_version=latest_version), {STRINGS["DOWNLOAD_AND_RESTART_BUTTON"]: "download", "Cancel": "cancel"}, self)
-            if dialog.exec() and dialog.result == "download": self._start_ytdlp_download(for_update=True)
+            if dialog.exec() and dialog.result == "download": self.is_updating_ytdlp = True; self._start_ytdlp_download(for_update=True)
+
+    def _check_ffmpeg_health(self, silent=True):
+        if self.ffmpeg_health_thread and self.ffmpeg_health_thread.isRunning(): return
+        self.ffmpeg_health_thread = QThread(); self.ffmpeg_health_worker = FFmpegHealthCheckWorker(); self.ffmpeg_health_worker.moveToThread(self.ffmpeg_health_thread)
+        self.ffmpeg_health_thread.started.connect(self.ffmpeg_health_worker.run)
+        self.ffmpeg_health_worker.signals.ffmpeg_health_checked.connect(self._on_ffmpeg_health_checked)
+        self.ffmpeg_health_worker.signals.ffmpeg_health_checked.connect(self.ffmpeg_health_thread.quit); self.ffmpeg_health_worker.signals.ffmpeg_health_checked.connect(self.ffmpeg_health_worker.deleteLater)
+        self.ffmpeg_health_thread.finished.connect(self.ffmpeg_health_thread.deleteLater); self.ffmpeg_health_thread.finished.connect(lambda: setattr(self, 'ffmpeg_health_thread', None))
+        self.ffmpeg_health_thread.start()
+
+    def _on_ffmpeg_health_checked(self, healthy):
+        if healthy or not self.ffmpeg_found: return
+        # FFmpeg is present but couldn't run - treat as corrupted and self-repair with a fresh "latest" download.
+        ModalDialog(STRINGS["DIALOG_TITLE_SETUP"], STRINGS["FFMPEG_CORRUPT_REDOWNLOADING"], {"OK": "ok"}, self).exec()
+        self._start_ffmpeg_download()
 
     def _check_for_app_updates(self, silent=False):
         if self.app_update_thread and self.app_update_thread.isRunning(): return
@@ -292,7 +350,7 @@ class SmartVideoDownloader(QMainWindow):
 
     def _populate_formats_table(self):
         self.formats_table.setRowCount(0)
-        formats = self.fetched_data.get("formats", []); qualities = set(); fmts = set()
+        formats = self.fetched_data.get("formats", []); qualities = set(); fmts = set(); languages = set()
         
         video_formats = []; audio_formats = []; merged_formats = []
         for f in formats:
@@ -307,10 +365,10 @@ class SmartVideoDownloader(QMainWindow):
         # 1. Add combined video + audio entries
         if video_formats and audio_formats:
             unique_langs = sorted(list(set(a.get('language') for a in audio_formats if a.get('language'))))
-            best_audio = max(audio_formats, key=lambda a: a.get('abr', 0))
+            best_audio = max(audio_formats, key=lambda a: a.get('abr') or 0)
             for v_fmt in video_formats:
                 for lang in unique_langs:
-                    best_lang_audio = next((a for a in sorted(audio_formats, key=lambda x: x.get('abr',0), reverse=True) if a.get('language') == lang), None)
+                    best_lang_audio = next((a for a in sorted(audio_formats, key=lambda x: x.get('abr') or 0, reverse=True) if a.get('language') == lang), None)
                     if best_lang_audio: self._add_format_row(v_fmt, audio_format=best_lang_audio)
                 if not unique_langs: self._add_format_row(v_fmt, audio_format=best_audio, is_best_audio=True)
         
@@ -327,36 +385,47 @@ class SmartVideoDownloader(QMainWindow):
         for row in range(self.formats_table.rowCount()):
             qualities.add(self.formats_table.item(row, 0).text())
             fmts.add(self.formats_table.item(row, 1).text())
-        
-        self.quality_filter.clear(); self.format_filter.clear()
+            row_lang = self.formats_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            if row_lang: languages.add(row_lang)
+
+        self.quality_filter.clear(); self.format_filter.clear(); self.language_filter.clear()
         self.quality_filter.addItems(["All"] + sorted(list(qualities), key=lambda x: -int(re.sub(r'[^0-9]', '', x) or 0)))
         self.format_filter.addItems(["All"] + sorted(list(fmts)))
+        self.language_filter.addItems(["All"] + sorted(list(languages)))
         self._filter_table()
 
     def _filter_table(self):
-        quality = self.quality_filter.currentText(); fmt = self.format_filter.currentText(); rows_visible = 0
+        quality = self.quality_filter.currentText(); fmt = self.format_filter.currentText(); language = self.language_filter.currentText(); rows_visible = 0
         for i in range(self.formats_table.rowCount()):
             q_match = (quality == "All" or self.formats_table.item(i, 0).text() == quality); f_match = (fmt == "All" or self.formats_table.item(i, 1).text() == fmt)
-            if q_match and f_match: self.formats_table.setRowHidden(i, False); rows_visible += 1
+            row_lang = self.formats_table.item(i, 0).data(Qt.ItemDataRole.UserRole)
+            l_match = (language == "All" or not row_lang or row_lang == language)
+            if q_match and f_match and l_match: self.formats_table.setRowHidden(i, False); rows_visible += 1
             else: self.formats_table.setRowHidden(i, True)
         self.empty_filter_label.setVisible(rows_visible == 0); self.formats_table.setVisible(rows_visible > 0)
 
     def _add_format_row(self, video_format, audio_format=None, is_best_audio=False):
         row = self.formats_table.rowCount(); self.formats_table.insertRow(row)
         is_video = video_format.get('vcodec') != 'none'
-        
+        language = None
+
         if is_video:
             quality = f"{video_format.get('height')}p"; ext = video_format.get('ext', 'mp4'); note = STRINGS["TABLE_NOTE_INCLUDES_AUDIO"]
             v_id = video_format['format_id']; a_id = None
             if audio_format:
                 a_id = audio_format['format_id']
+                language = audio_format.get('language_name') or audio_format.get('language')
                 if is_best_audio: note = STRINGS["TABLE_NOTE_BEST_AUDIO"]
-                else: note = STRINGS["TABLE_NOTE_AUDIO_LANG"].format(lang=audio_format.get('language_name', audio_format.get('language', '')))
-        else: quality = STRINGS["TABLE_QUALITY_AUDIO"]; ext = video_format.get('ext'); note = video_format.get('format_note', ''); v_id = video_format['format_id']; a_id = None
-            
+                else: note = STRINGS["TABLE_NOTE_AUDIO_LANG"].format(lang=language or '')
+        else:
+            quality = STRINGS["TABLE_QUALITY_AUDIO"]; ext = video_format.get('ext'); v_id = video_format['format_id']; a_id = None
+            language = video_format.get('language_name') or video_format.get('language')
+            note = STRINGS["TABLE_NOTE_AUDIO_LANG"].format(lang=language) if language else video_format.get('format_note', '')
+
         size_str = f"{(video_format.get('filesize_approx', 0) + (audio_format.get('filesize_approx', 0) if audio_format else 0)) / (1024*1024):.2f} MB" if video_format.get('filesize_approx') else "N/A"
 
-        self.formats_table.setItem(row, 0, QTableWidgetItem(quality)); self.formats_table.setItem(row, 1, QTableWidgetItem(ext)); self.formats_table.setItem(row, 2, QTableWidgetItem(size_str)); self.formats_table.setItem(row, 3, QTableWidgetItem(note))
+        quality_item = QTableWidgetItem(quality); quality_item.setData(Qt.ItemDataRole.UserRole, language)
+        self.formats_table.setItem(row, 0, quality_item); self.formats_table.setItem(row, 1, QTableWidgetItem(ext)); self.formats_table.setItem(row, 2, QTableWidgetItem(size_str)); self.formats_table.setItem(row, 3, QTableWidgetItem(note))
         download_btn = QPushButton(STRINGS["DOWNLOAD_BUTTON"]); download_btn.setObjectName("downloadButton"); download_btn.clicked.connect(lambda _, r=row, vid=v_id, aid=a_id: self._on_download_clicked(r, vid, aid))
         container = QWidget(); layout = QHBoxLayout(container); layout.setContentsMargins(0,0,0,0); layout.setAlignment(Qt.AlignmentFlag.AlignCenter); layout.addWidget(download_btn)
         self.formats_table.setCellWidget(row, 4, container); self.formats_table.setRowHeight(row, download_btn.sizeHint().height() + 20)

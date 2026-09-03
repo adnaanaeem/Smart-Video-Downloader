@@ -1,0 +1,469 @@
+# Smart Video Downloader — Project Handoff
+
+A desktop GUI (PyQt6) that wraps `yt-dlp` + `ffmpeg` to fetch and download video/audio
+from hundreds of sites (YouTube, TikTok, Instagram, Facebook, Vimeo, Dailymotion, ...).
+Single-window app, dark theme, download queue with progress bars, MP3 conversion,
+cookies-based private video support, self-updating `yt-dlp`/`ffmpeg`/app binary.
+
+**Maintainer:** Adnan Naeem · **Current version:** see `config.py` → `APP_VERSION`
+(README.md's "What's New" section is user-facing changelog; this file's Changelog
+section below is the developer/agent-facing one — keep both in sync).
+
+> **Instruction for future Claude sessions:** whenever you fix a bug or add a
+> feature in this repo, append an entry to the **Changelog** section at the
+> bottom of this file (what changed, why, which file/function). This is the
+> project's institutional memory — don't skip it.
+
+---
+
+## Tech Stack
+
+- **Language:** Python 3
+- **GUI:** PyQt6 (`QApplication`/`QMainWindow`, hand-rolled dark theme via stylesheet)
+- **Downloader backend:** `yt-dlp.exe` (bundled binary, invoked via `subprocess`)
+- **Audio/video muxing:** `ffmpeg.exe` (bundled binary)
+- **HTTP:** `requests` (for dependency downloads, GitHub release checks, thumbnails)
+- **Packaging:** PyInstaller (`Smart Video Downloader.spec`) → Inno Setup (`setup_script.iss`)
+- **Threading model:** every blocking operation (fetch, download, dependency
+  download, version check) runs in a `QThread` + `QObject` worker with
+  `pyqtSignal`-based callbacks back to the UI thread — see `workers.py`.
+
+(Historical note: `requirements.txt` used to list `PyQt5` despite all code
+importing `PyQt6` since the v2.0 migration, and was missing `requests`/
+`packaging`. Fixed 2026-09-04 — see Changelog.)
+
+## Entry Point & Run/Build
+
+- Run from source: `python main.py` (needs `yt-dlp`/`ffmpeg` — `.exe` suffix on
+  Windows, none on macOS, see `workers.py` `EXE_SUFFIX` — in the working dir, or
+  the app will prompt to auto-download them on first launch).
+- **The app is cross-platform (Windows + macOS/Apple Silicon)** as of v2.1.2 —
+  see the 2026-09-04 (v2.1.2) Changelog entry for the full story of what that
+  required (platform-conditional binary paths/URLs/extraction,
+  `CREATE_NO_WINDOW` guard, etc.). Windows remains the only platform anyone has
+  actually run the source app on directly in this repo's history; macOS support
+  is CI-built and CI-verified only (no Mac hardware available to the agent that
+  built it) — treat mac-specific code paths with a bit more scrutiny until a
+  human confirms real-machine behavior.
+- Build (manual/local): `pyinstaller --name "Smart Video Downloader" --onefile
+  --windowed --icon="icon.ico" --add-data "icon.ico;." --add-data "icon.png;."
+  main.py` on Windows (swap `icon.ico`→`icon.icns` and `;`→`:` on macOS; see
+  `.github/workflows/release.yml` for the exact mac invocation, including
+  `.icns` generation via `sips`/`iconutil`). `*.spec` files are gitignored —
+  regenerated per-build, never hand-maintained or committed.
+- Installer: `setup_script.iss` (Inno Setup, Windows only) packages the
+  PyInstaller output — paths inside it are relative to the `.iss` file's own
+  location, run `ISCC.exe setup_script.iss` from the repo root. macOS packaging
+  uses `hdiutil` to produce a `.dmg` directly from the PyInstaller `.app` output
+  (no separate installer script).
+- **CI/CD:** `.github/workflows/release.yml` builds both installers and
+  publishes them to a GitHub Release on every `v*` tag push (or manual
+  `workflow_dispatch`). See that file and the v2.1.2 changelog entry for the
+  full pipeline shape.
+- `dist/`, `build/`, `Output/` are build artifacts; `ffmpeg-master-latest-win64-gpl/`
+  is a leftover extraction folder from a manual ffmpeg download.
+- `Smart-Video-Downloader/` (nested dir) is an empty stray folder containing only
+  a `.git` and `.gitattributes` — not part of the app, likely a leftover from an
+  earlier repo init. Safe to ignore; ask before deleting.
+
+## Code Map
+
+| File | Responsibility |
+|---|---|
+| `main.py` | `SmartVideoDownloader(QMainWindow)` — the entire UI: builds all panels (`_create_*` methods), wires button clicks to worker threads, owns app state (`fetched_data`, `download_items`, `save_path`, `cookies_path`), persists settings, drives the dependency-check / self-update flows. This is the file you'll touch for almost any feature/bug work. |
+| `workers.py` | All background work as `QObject` subclasses moved to `QThread`s, plus custom widgets/dialogs (`Spinner`, `ModalDialog`, `DeveloperDialog`, `DownloadItem`) and the shared `WorkerSignals` class (all cross-thread signals live here). |
+| `config.py` | Static config: app title/version, developer info, dependency download URLs, GitHub API URLs for update checks. Bump `APP_VERSION` here on release. |
+| `theme.py` | Single source of truth for colors (`THEME` dict) and `FONT_FAMILY`. |
+| `styles.py` | `generate_stylesheet()` — builds the full Qt stylesheet string from `theme.py`, applied once via `app.setStyleSheet(...)` in `main.py`. |
+| `localization.py` | `STRINGS` dict — every user-facing string. Add new UI text here, not inline, to keep the app localization-ready. |
+| `config.json` | Runtime example/leftover of the settings file shape (actual settings persist to `%LocalAppData%/.../settings.json` via `get_settings_path()` in `main.py`, not this file — this one looks like a stray dev artifact). |
+| `setup_script.iss` | Inno Setup installer script (Windows). |
+| `.github/workflows/release.yml` | GitHub Actions: builds Windows + macOS installers and publishes them to a GitHub Release on tag push. |
+| `icon.ico` / `icon.png` | App icons (window icon + header logo). `icon.icns` (macOS) is generated at CI build time, not committed. |
+| `yt-dlp` / `ffmpeg` (`.exe` on Windows) | Bundled binaries, gitignored — auto-downloaded by the app if missing or corrupted, platform-appropriate URL picked in `workers.py` (`YTDlpWorker`, `FFmpegDownloadWorker`). |
+
+## Architecture / Key Flows
+
+**Startup:** `SmartVideoDownloader.__init__` → `_setup_ui()` builds all panels
+(hidden until needed) → `_load_settings()` restores `save_path`/`cookies_path`
+from disk → `check_dependencies()` verifies `yt-dlp.exe`/`ffmpeg.exe` exist,
+prompting a forced download (`YTDlpWorker`/`FFmpegDownloadWorker`) if not, then
+silently checks for app updates (`AppUpdateCheckWorker` against `config.APP_API_URL`,
+a GitHub "latest release" endpoint).
+
+**Fetch flow:** URL entered → `_on_fetch_clicked` spins up `FetchWorker`, which
+runs `yt-dlp.exe <url> --dump-json --no-playlist` and parses the JSON → on
+success, `_populate_video_data()` (title/description/thumbnail) and
+`_populate_formats_table()` build the formats table. Format rows are
+synthesized by pairing `video_formats` (video-only) with `audio_formats`
+(audio-only) per language, plus pre-merged formats and a dedicated MP3 row
+(`_add_mp3_row`, disabled if `ffmpeg.exe` missing).
+
+**Download flow:** clicking a row's Download button → `_on_download_clicked`
+checks for filename collision (overwrite confirmation) → `_start_download_worker`
+spins up `DownloadWorker`, which runs `yt-dlp.exe <url> -f
+"<video_id>+<audio_id>" -o <path> --merge-output-format mp4` (or just
+`<video_id>` for pre-merged formats), streams stdout for `[download] NN%` lines
+via regex to update the per-item progress bar. MP3 downloads go through the
+separate `Mp3DownloadWorker` (`-x --audio-format mp3`) with its own progress regex.
+Every queued download gets a `DownloadItem` widget appended to
+`queue_list_layout`, keyed by a `unique_id` string.
+
+**Error handling:** `handle_fetch_error` / `_on_download_finished` sniff the
+error text for private-video keywords ("private", "login required", "members
+only", "sign in", ...) and route to `_show_private_video_help()` with
+cookies-file instructions; other errors go to `_show_error()`, which collapses
+long messages behind a "Details" button (scrollable `ModalDialog`).
+
+**Self-update flows:** `_on_ytdlp_update_clicked` → `VersionCheckWorker` compares
+local `yt-dlp.exe --version` vs `config.YT_DLP_API_URL` latest tag → on accept,
+re-downloads via `YTDlpWorker` with `is_updating_ytdlp=True` so
+`_on_ytdlp_download_finished` knows to show a restart dialog instead of
+re-running first-launch setup, then `os.execl`s the app to restart in place.
+`_check_for_app_updates` does the same pattern for the app itself but just
+opens the GitHub releases page (no self-replace) via `webbrowser.open`.
+
+**Settings persistence:** `_save_settings()`/`_load_settings()` read/write JSON
+(`{"save_path", "cookies_path"}`) to `QStandardPaths.AppLocalDataLocation` (NOT
+the repo's `config.json`, which is just a stray sample file — don't confuse
+the two). Saved on every change and on `closeEvent`.
+
+## Gotchas / Things to Know Before Changing Code
+
+- All `yt-dlp.exe`/`ffmpeg.exe` subprocess calls assume the binaries are in the
+  **current working directory** (`resource_path()` handles the PyInstaller
+  `_MEIPASS` case for bundled resources like icons, but the subprocess calls in
+  `workers.py` use bare `"yt-dlp.exe"` / relative paths — this works for the
+  built EXE because PyInstaller `--onefile` extracts next to itself at runtime,
+  but can break if run from source with a different CWD).
+- The formats table's video+audio pairing logic (`_populate_formats_table`) is
+  the most complex/fragile part of the UI code — it's where the v2.1.1
+  "no audio on 1080p+" bug lived (see Changelog). Any change to format
+  filtering/selection should be manually tested against a video with
+  multiple audio-language tracks and one without.
+- `is_updating_ytdlp` flag on the main window distinguishes "first-time
+  setup download" vs "user-triggered update" so the finish handler shows the
+  right dialog — don't remove without preserving that branch.
+- The app hard-restarts itself (`os.execl`) after any dependency download to
+  pick up the new binary — expect the window to visibly relaunch during testing.
+
+## Changelog (bug fixes & features — newest first)
+
+Keep entries short: version/date, what changed, why, where.
+
+### 2026-09-04 (v2.1.2) — Language filter + genuine Windows/macOS cross-platform support + release CI
+- **feat:** Added a **Language** filter to the formats table, alongside the
+  existing Quality/Format filters (`main.py`). Each row is tagged with its
+  audio language via `QTableWidgetItem.setData(Qt.ItemDataRole.UserRole, ...)`
+  on the Quality-column cell (`_add_format_row`); `_populate_formats_table`
+  collects the set of languages present and populates the new
+  `self.language_filter` combo box; `_filter_table` matches against it, with
+  rows that have no language (merged formats, the MP3 row) always passing
+  since they aren't language-specific. Along the way, fixed a small
+  pre-existing gap where pure audio-only rows showed no language at all in
+  their Note text.
+- **feat (major): the app is now genuinely cross-platform (Windows + macOS
+  Apple Silicon), not Windows-only.**
+  - `workers.py`: `YTDLP_PATH`/`FFMPEG_PATH` now use a conditional
+    `EXE_SUFFIX` (`.exe` on Windows, none on mac) instead of a hardcoded
+    `.exe`. Added a module-level `CREATE_NO_WINDOW = getattr(subprocess,
+    "CREATE_NO_WINDOW", 0)` and replaced every direct
+    `subprocess.CREATE_NO_WINDOW` reference with it — that constant doesn't
+    exist on macOS/Linux and would have raised `AttributeError`.
+  - `config.py`: added `YT_DLP_URL_MAC` (yt-dlp's official `yt-dlp_macos`
+    release asset — a direct executable, no zip) and `FFMPEG_URL_MAC`
+    (`evermeet.cx`'s stable "always latest" zip endpoint, the same role
+    BtbN plays for Windows). `YTDlpWorker`/`FFmpegDownloadWorker` pick the
+    right URL based on `IS_MAC` (`sys.platform.startswith("darwin")`) and
+    `chmod 0o755` the downloaded binary on mac (needed there, not on
+    Windows). Verified both URLs resolve to real assets by fetching them
+    directly before wiring this up.
+  - `FFmpegDownloadWorker`'s zip extraction now branches by platform: the
+    Windows BtbN build nests the binary at `.../bin/ffmpeg.exe`; the mac
+    evermeet.cx build has a single root-level member literally named
+    `ffmpeg` (verified this by actually downloading and inspecting the real
+    zip — an earlier assumption of a nested `bin/ffmpeg` path was wrong and
+    would have silently matched nothing). Both branches move the extracted
+    file into place with `os.replace` (not `os.rename` — see the
+    self-repair entry above for why that matters on Windows; the same
+    hazard applies on mac).
+  - Binaries are *not* bundled into the installer on either platform — the
+    app downloads them itself on first launch via the existing
+    dependency-check flow, so no build-time fetching was needed.
+- **feat: macOS packaging.** No `.icns` icon existed (and can't be generated
+  on Windows); it's generated at CI build time from the existing `icon.png`
+  via macOS's built-in `sips`/`iconutil`. No new PyInstaller spec file was
+  added — `*.spec` is `.gitignore`d in this repo (regenerated per-build, not
+  version-controlled) and PyInstaller's `--windowed` flag already produces a
+  proper `.app` bundle on macOS automatically from the same CLI command
+  pattern already documented for Windows, so the mac CI job just runs that
+  CLI command with `icon.icns` and a `:`-separated `--add-data` (Windows
+  uses `;`). Packaged into a `.dmg` via macOS's built-in `hdiutil` (no extra
+  dependency).
+- **feat: GitHub Actions release pipeline** (`.github/workflows/release.yml`,
+  new). Triggers on `v*` tag pushes (plus manual `workflow_dispatch`).
+  `build-windows` (windows-latest): PyInstaller → installs Inno Setup via
+  `choco` → compiles `setup_script.iss`. `build-macos` (pinned to
+  `macos-14`/Apple Silicon, not the floating `macos-latest` alias, for
+  architecture stability): generates the icon → PyInstaller → `hdiutil`.
+  `publish-release` (needs both): attaches both installers to the GitHub
+  Release via `softprops/action-gh-release`. Artifact filenames are
+  **version-agnostic** (`SmartVideoDownloaderSetup-Windows.exe`,
+  `SmartVideoDownloader-macOS-arm64.dmg` — no version number in the name)
+  specifically so README links to `/releases/latest/download/<filename>`
+  never go stale across releases.
+- **fix (blocking prerequisite for any of the above to work in CI):**
+  `requirements.txt` listed `PyQt5` (wrong — the app has imported `PyQt6`
+  since the v2.0 refactor, already flagged as stale in this file's Gotchas
+  section) and was missing `requests`/`packaging`, both imported by
+  `workers.py`. Fixed to `PyQt6`, `yt-dlp`, `requests`, `packaging`.
+- **fix:** `setup_script.iss` hardcoded absolute paths
+  (`C:\ADNAN\YT-Downloader\...`) that were already stale even for local
+  builds on this machine (the repo lives at `E:\Claude-Tools\YT-Downloader`)
+  and would never have worked in CI regardless. Changed to paths relative to
+  the `.iss` file's own directory (Inno Setup's default resolution), and the
+  output filename to the version-agnostic `SmartVideoDownloaderSetup-Windows`
+  mentioned above.
+- **chore:** bumped `APP_VERSION` `v2.1.1` → `v2.1.2` (`config.py`,
+  `setup_script.iss`), updated `README.md` (dynamic latest-release badge,
+  separate Windows/macOS download buttons and install sections, macOS
+  Gatekeeper workaround instructions covering both the classic right-click
+  flow and the newer macOS Sequoia+ System Settings flow since Apple changed
+  this across versions), and `.gitignore` (added `Output/`, `*.dmg`,
+  `*.icns` — these are build outputs, never meant to be committed).
+- **Known limitation, called out explicitly to the user:** this was
+  implemented and CI-verified (the Actions run succeeding is real signal),
+  but actual runtime behavior on physical Mac hardware — does the app
+  launch, does the documented Gatekeeper flow match reality — could not be
+  verified directly; no macOS machine was available this session. Also,
+  only Apple Silicon (arm64) is targeted; Intel Macs are unsupported by
+  design per this session's discussion with the user (cost/complexity
+  tradeoff of a second CI job), not an oversight — revisit if Intel-Mac
+  users report needing it.
+
+### 2026-09-04 — automatic yt-dlp/ffmpeg update checks + self-repair for corrupted binaries
+- **feat:** User asked, after the wrong-binary bug above, to make sure the app
+  always checks for yt-dlp/ffmpeg updates and can never again silently run a
+  broken/stale copy. Added:
+  - **Automatic yt-dlp version check on every startup** (silent, alongside the
+    existing silent app-update check in `check_dependencies()`). Reuses the
+    existing `VersionCheckWorker` (already used by the manual "Update yt-dlp"
+    menu action) via a new shared `_start_ytdlp_version_check(silent)` method
+    in `main.py`. If an update is available, the same prompt dialog as the
+    manual flow appears (download & restart, or skip); if already up to date,
+    stays fully silent — matches the existing app-update-check UX pattern
+    exactly (`_check_for_app_updates`/`_on_app_update_checked`).
+  - **Corruption self-repair for both yt-dlp and ffmpeg.** `VersionCheckWorker`
+    already returns `local_version == "N/A"` if `yt-dlp.exe --version` fails
+    to run even though the file exists — repurposed that as a corruption
+    signal: `_on_ytdlp_version_checked` now detects "file exists but won't
+    run" and auto-triggers a fresh download + restart (with a brief
+    heads-up dialog, since it's a repair action, not a routine background
+    check). Added the equivalent for ffmpeg: a new `FFmpegHealthCheckWorker`
+    in `workers.py` (runs `ffmpeg.exe -version`, emits a bool via a new
+    `ffmpeg_health_checked` signal) wired up through `_check_ffmpeg_health`/
+    `_on_ffmpeg_health_checked` in `main.py`, called from `check_dependencies()`
+    alongside the yt-dlp check. Directly addresses the user's ask: a
+    corrupted/broken bundled binary can no longer cause a silent bad state —
+    it gets detected and replaced automatically on next launch.
+  - Added `FFMPEG_CORRUPT_REDOWNLOADING`/`YTDLP_CORRUPT_REDOWNLOADING` strings
+    to `localization.py`.
+  - **Found and fixed a real (pre-existing, previously untriggered) bug while
+    testing this:** `FFmpegDownloadWorker`'s extraction step used
+    `os.rename(extracted_file, FFMPEG_PATH)` to move the freshly-extracted
+    `ffmpeg.exe` into place. `os.rename` raises `FileExistsError` on Windows
+    if the destination already exists — harmless during first-time setup
+    (no `ffmpeg.exe` there yet) but fatal during a *repair*, where the
+    corrupted `ffmpeg.exe` is already sitting at that exact path. Caught this
+    via a live end-to-end test (corrupted `ffmpeg.exe`, watched the app
+    detect it, download the full ~192MB build, then fail at the final move
+    step and delete the downloaded zip via the except-block cleanup, leaving
+    the corrupted file in place). **Fix:** changed to `os.replace(...)`,
+    which atomically overwrites the destination on both Windows and POSIX.
+    Verified via a targeted simulation of the exact same extraction code
+    with a pre-existing "corrupt" target file in place (avoided repeating
+    the full 192MB download a second time) — confirmed the new file
+    correctly overwrites the old one. The yt-dlp side of this never had the
+    same bug because its download path uses `open(YTDLP_PATH, "wb")`
+    directly, which always overwrites regardless of OS.
+  Verified end-to-end live through the actual GUI: corrupted the real
+  `yt-dlp.exe` → app detected it on startup, showed the repair dialog,
+  redownloaded, and restarted cleanly with a working binary. Confirmed a
+  clean/healthy startup afterward shows no false-positive dialogs.
+
+### 2026-09-04 — two more layered bugs found while chasing "still 360p only": wrong yt-dlp binary + a real crash in the formats table
+- **context:** After the `player_client` correction below, the user reported the
+  table was *still* stuck at 360p on the actual running `python main.py` app
+  (not the stale installed EXE — that was a dead-end theory, ruled out). Root
+  cause turned out to be two independent, previously-latent bugs stacked on
+  top of each other:
+  1. **Wrong yt-dlp binary picked up.** `workers.py` invoked the bundled
+     binary via the bare name `"yt-dlp.exe"` everywhere (existence checks,
+     downloads, and all three subprocess calls), relying on Windows'
+     executable search order to find it via cwd. In practice Windows was
+     resolving that bare name to an unrelated **pip-installed yt-dlp
+     (2026.02.04)** sitting on system PATH at
+     `...\Python\Python313\Scripts\yt-dlp.exe`, *not* the repo's own
+     2026.08.19 binary — confirmed by directly replicating `FetchWorker`'s
+     exact `subprocess.run` call and seeing its stderr self-report as
+     "2026.02.04" plus a "no supported JavaScript runtime" warning. That
+     stale copy couldn't resolve most formats, so it silently fell back to
+     the one legacy format it could: 360p. This exactly matches the gotcha
+     already documented in this file's Gotchas section about bare relative
+     binary paths breaking when run from source.
+     **Fix:** added `get_bin_dir()` to `workers.py` (frozen → dir of
+     `sys.executable`; from source → dir of `workers.py` itself) and
+     `YTDLP_PATH`/`FFMPEG_PATH` absolute-path constants built from it. Every
+     bare `"yt-dlp.exe"`/`"ffmpeg.exe"` reference in `workers.py`
+     (`VersionCheckWorker`, `YTDlpWorker`, `FFmpegDownloadWorker`,
+     `FetchWorker`, `DownloadWorker`, `Mp3DownloadWorker`) now uses these
+     constants instead of a bare name, so the app always runs its own
+     bundled binary regardless of cwd/PATH. `main.py`'s `ffmpeg_found`/
+     `ytdlp_found` checks (`__init__` and `check_dependencies`) were updated
+     to import and use the same constants instead of `resource_path(...)`,
+     which was also wrong for these two files specifically (they live next
+     to the built EXE, not inside PyInstaller's `_MEIPASS`, since they're
+     not bundled via `--add-data`).
+  2. **Real crash in `_populate_formats_table` once full format data actually
+     arrived.** With the binary bug fixed, fetching returned the full
+     format list — and the app then crashed outright a few seconds after
+     every single Fetch, with **no Python traceback at all** (silent native
+     abort from an unhandled exception inside a Qt slot). Isolated by
+     calling `FetchWorker.run()` and `_populate_formats_table()` directly
+     in a script (bypassing the GUI event loop) to get a real traceback:
+     `TypeError: '>' not supported between instances of 'NoneType' and
+     'NoneType'` at `main.py`'s `best_audio = max(audio_formats, key=lambda
+     a: a.get('abr', 0))`. Cause: `.get('abr', 0)` only substitutes the
+     default `0` when the `'abr'` key is *missing* — but many real
+     audio-only formats have the key present with value `None` (bitrate not
+     computed for that stream), so `.get()` returns `None`, and comparing
+     `None` to `None` blows up `max()`/`sorted()`. This bug is genuinely old
+     (predates today's session) but was masked until now: the earlier
+     wrong-binary bug happened to return a single *muxed* format with no
+     separate `audio_formats` list, so this code path was simply never
+     exercised by any of today's earlier tests.
+     **Fix:** changed both call sites in `_populate_formats_table` from
+     `a.get('abr', 0)` to `a.get('abr') or 0` (handles missing key *and*
+     explicit `None` value).
+  Verified end-to-end via a direct scripted fetch + populate (925 rows for
+  a heavily-dubbed video: 37 video resolutions 144p–2160p × 21 audio
+  languages) and then live through the actual GUI — full quality dropdown
+  now shows 2160p/1440p/1080p/720p/480p/360p/240p/144p/Audio, no crash.
+  **Lesson for future sessions:** when a fetch "succeeds" but shows
+  suspiciously little data, don't assume yt-dlp itself is the problem —
+  verify the *exact* binary path being invoked (`--version` output can
+  reveal a different binary than expected) AND replicate the GUI's
+  post-fetch data processing directly in a script outside the Qt event
+  loop, since exceptions raised inside a Qt slot can silently kill the
+  whole process with zero traceback output.
+
+### 2026-09-04 — correction: forced `player_client` broke format selection (4K/HD/multi-audio gone)
+- **fix:** The 403 fix below (forcing `--extractor-args
+  "youtube:player_client=android,web,ios"`) had an unintended side effect
+  reported by the user after testing: the formats table collapsed to just
+  360p + MP3, losing 4K/1440p/1080p/720p video and all the extra audio-only
+  tracks that used to show up. Root cause: the `android` client YouTube serves
+  does **not** return the DASH manifest at all — it only exposes one legacy
+  progressive itag (18, 640x360 with muxed low-quality audio). Since `android`
+  was first in the client list and succeeded, yt-dlp never needed to fall
+  back to `web`/`ios`, so every fetch silently got android's crippled format
+  list. Verified via direct CLI compare: `--list-formats` with
+  `player_client=android,web,ios` → only itag 18; with no override at all →
+  37 video-only formats (144p–2160p) + 7 audio-only formats.
+  **Also re-verified the original 403 premise:** with the bundled `yt-dlp.exe`
+  now updated (`2026.08.19`), the *default* client rotation (currently landing
+  on `visionos`) reliably returns full formats AND downloads a 1080p stream
+  without any 403, across repeated runs, and MP3 extraction works too. This
+  strongly suggests the original 403 was caused by the **stale yt-dlp binary**
+  (`2025.11.12`), not by needing a specific client — the client-forcing part of
+  the earlier fix was an overcorrection.
+  **Fix:** removed `--extractor-args "youtube:player_client=android,web,ios"`
+  from all three yt-dlp invocations in `workers.py` (`FetchWorker`,
+  `DownloadWorker`, `Mp3DownloadWorker`), restoring default client rotation.
+  If 403s return in the future, keeping `yt-dlp.exe` current is the first
+  thing to check before reaching for a client override again — and if a
+  client override does become necessary, verify with `--list-formats` (not
+  just one download) that it still returns the full resolution/audio range,
+  since some clients (like `android`) silently truncate the format list.
+
+### 2026-09-04 — yt-dlp `403 Forbidden` on download (root-caused + fixed)
+- **fix:** Downloads (and MP3 conversions) were intermittently/consistently
+  failing with `ERROR: unable to download video data: HTTP Error 403:
+  Forbidden`, even though "Fetch" worked fine. Root-caused via direct
+  `yt-dlp.exe` CLI testing: yt-dlp's default YouTube player-client rotation
+  was landing on `android_vr` (and, later in testing, `visionos`) — both
+  currently blocked/broken by YouTube — while other clients (`android`,
+  `web`, `ios`) resolved and downloaded the same formats without issue.
+  Confirmed reproducible by forcing `--extractor-args
+  "youtube:player_client=android_vr"` (fails) vs `player_client=android,web,ios`
+  (succeeds reliably, verified with several repeat downloads).
+  **Fix:** added `--extractor-args "youtube:player_client=android,web,ios"` to
+  all three yt-dlp invocations in `workers.py` (`FetchWorker`, `DownloadWorker`,
+  `Mp3DownloadWorker`). Verified end-to-end through the actual GUI (fetch →
+  format table → Download click → progress → "1/1 completed" → real file on
+  disk). This is a YouTube/yt-dlp extractor cat-and-mouse issue (client
+  breakage changes over time), not an app logic bug — if downloads start
+  403'ing again in the future, the fix is to update this client list (check
+  which clients currently work via `yt-dlp.exe <url> --extractor-args
+  "youtube:player_client=<name>" --simulate`), not to touch the download flow.
+- **chore:** Bundled `yt-dlp.exe` was also very stale (`2025.11.12` vs latest
+  `2026.08.19` at the time) and was updated in the working tree. Bundled
+  binaries are gitignored (`*.exe`), so this isn't a commit — just a note that
+  whoever builds the next release should re-run the yt-dlp update flow (or
+  redownload) before packaging.
+- **known non-blocking issue found during this testing pass (not fixed):**
+  after a download fails, its row's Download button stays permanently
+  disabled/stuck on "Queued" (`_on_download_finished` never re-enables it),
+  so retrying requires a full re-fetch. `main.py` `_start_download_worker` /
+  `_on_download_finished`.
+
+### Unresolved / uncommitted at last handoff (2026-09-04)
+- **fix:** `is_updating_ytdlp` flag added to `SmartVideoDownloader` (`main.py`)
+  so that clicking "Update yt-dlp" from the menu, then completing the download,
+  shows a proper success/restart dialog instead of silently re-running
+  `check_dependencies()` (which is meant only for first-launch setup). Previously
+  `_on_ytdlp_update_clicked` → `_start_ytdlp_download(for_update=True)` set a
+  `for_update` flag that was never actually read by the finish handler, so a
+  manual yt-dlp update looked like it did nothing.
+  Files: `main.py` (`__init__`, `_on_ytdlp_download_finished`, `_on_ytdlp_version_checked`).
+- **chore:** `config.py` `APP_VERSION` bumped `v2.1.0` → `v2.1.1` (uncommitted
+  as of this handoff — commit alongside the fix above when ready).
+- These changes are **staged in the working tree but not committed** as of
+  this handoff — verify `git status` before continuing work.
+
+### v2.1.0/v2.1.1 (2025-11-21)
+- **fix (critical):** Corrected audio merging bug where downloads of
+  high-resolution videos (1080p+) had no audio. Root cause was in how video-only
+  formats were paired with a separate audio stream and merged via
+  `--merge-output-format mp4`; multiple follow-up commits under the same message
+  ("Correct critical audio merging bug and other minor fixes") iterated on the
+  fix in `workers.py` (`DownloadWorker`) and `main.py` (`_populate_formats_table`,
+  `_add_format_row`).
+- **fix:** Resolved several `TypeError`/`AttributeError` crashes left over from
+  the v2.0 refactor.
+- **fix:** Improved UI consistency and error handling dialogs.
+
+### v2.0.0 (2025-10-30)
+- **feat (major):** Full architectural refactor from a single-file app into
+  isolated modules: `main.py` (UI), `workers.py` (background work), `config.py`
+  (settings/URLs), `theme.py` + `styles.py` (theming), `localization.py` (strings).
+- **feat:** Added support for hundreds of additional sites (TikTok, Instagram,
+  Facebook, Dailymotion, etc.) via `yt-dlp`'s native extractor list.
+- **feat:** Application auto-updater (`AppUpdateCheckWorker` + GitHub releases
+  API) and mandatory first-launch dependency downloader for `yt-dlp`/`ffmpeg`
+  (`check_dependencies`, `YTDlpWorker`, `FFmpegDownloadWorker`).
+  Follow-up fix commits (2025-10-30, "Correct NameError during format
+  population") patched crashes introduced by this refactor in the formats
+  table population path.
+- **feat:** Contextual error handling — private/members-only video detection
+  with a dedicated "How to Add Cookies" help dialog (`_show_private_video_help`,
+  `PRIVATE_VIDEO_HELP` string).
+
+### Initial release (2025-10-28)
+- Initial commit: complete single-pass application source (pre-refactor),
+  README, screenshots, license.
+
+---
+*Generated 2026-09-04 by Claude as a project handoff. Update the Changelog
+section above with every future fix/feature so the next session (human or
+Claude) doesn't have to re-derive project history from `git log`.*
