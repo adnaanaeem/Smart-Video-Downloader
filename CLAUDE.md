@@ -153,6 +153,40 @@ the two). Saved on every change and on `closeEvent`.
 
 Keep entries short: version/date, what changed, why, where.
 
+### 2026-09-04 — fix: clip downloads looked hung for anything longer than ~30s
+- **fix (real bug, found by the user testing a real 6-minute clip):**
+  `--force-keyframes-at-cuts` (added in the clip-download feature below)
+  does **not** just touch up the cut points — it re-encodes the *entire*
+  selected range with libx264, end to end. For a short test clip (10s)
+  that's instant, which is why it looked fine when this was first built
+  and verified. For the user's real 6-minute 1080p60 clip it meant ~21
+  minutes of CPU-bound encoding at the observed `speed=0.28x` — and worse,
+  during that whole phase the app's progress regex (`\[download\]\s+N%`)
+  never matches ffmpeg's own `frame=... speed=...` progress lines, so the
+  UI showed zero feedback ("Waiting...", 0%) for the entire encode. From
+  the user's side that is indistinguishable from a genuine hang.
+  **Root-caused by reproducing the exact command directly via the yt-dlp
+  CLI** (same format ids, same clip range, same flags the app builds) with
+  output going to a real log file (piping through `tail` first hid this —
+  `tail` buffers until EOF, so nothing appeared until the process
+  finished, which looked like *no output at all* and pointed at the wrong
+  cause initially). The direct log showed ffmpeg actively transcoding
+  frame-by-frame at low speed, not a hang.
+  **Fix:** `workers.py` `_clip_section_args()` no longer adds
+  `--force-keyframes-at-cuts`. Without it, yt-dlp stream-copies and snaps
+  cut points to the nearest keyframe (typically within a couple of
+  seconds) instead of frame-accurate cuts — trading a small amount of
+  boundary precision for a clip download that is actually fast, which is
+  the entire point of the feature. **Re-verified with the identical
+  real-world command** that previously hung: now completes in 3m21s for a
+  162MB clip (844KB/s, fully proportional to real download bandwidth, not
+  stuck), vs. still running with zero progress after 90+ seconds before.
+  **Lesson:** the original clip-download testing only used a 10-second
+  clip, which was too short to expose a cost that scales with clip
+  *length* rather than clip *count* — a good reminder to test with an
+  input shape closer to how a feature will actually be used, not just the
+  cheapest case that proves the mechanism works at all.
+
 ### 2026-09-04 — parallel-fragment downloads (opt-in, off by default)
 - **feat:** "Faster Downloads (Parallel Fragments)" checkbox next to the
   other download-time toggles. When on, adds yt-dlp's `-N 4`
@@ -193,12 +227,16 @@ Keep entries short: version/date, what changed, why, where.
   full-video download of the same title, and a matching `[Clip H:MM–H:MM]`
   note in the queue-item label.
   `workers.py`: new `_clip_section_args()` helper builds
-  `--download-sections "*START-END" --force-keyframes-at-cuts` (seconds,
-  not timestamps, to sidestep any format ambiguity) — added as an optional
-  `clip_start`/`clip_end` param on both `DownloadWorker` and
-  `Mp3DownloadWorker`. `--force-keyframes-at-cuts` re-encodes only around
-  the cut points (needs ffmpeg, already a hard dependency) for frame-accurate
-  boundaries rather than snapping to the nearest keyframe.
+  `--download-sections "*START-END"` (seconds, not timestamps, to sidestep
+  any format ambiguity) — added as an optional `clip_start`/`clip_end`
+  param on both `DownloadWorker` and `Mp3DownloadWorker`.
+  **Correction (see the fix entry above, newer):** this originally also
+  added `--force-keyframes-at-cuts` for frame-accurate cut boundaries; that
+  was based on a misreading of what the flag does (assumed it only
+  touched up the cut points) and was removed after it made real-world clip
+  downloads look hung for minutes. Cuts now snap to the nearest keyframe
+  instead of being frame-accurate — the right trade-off for a feature
+  whose whole point is speed.
   Verified the exact yt-dlp syntax and behavior directly via the CLI before
   wiring it up (confirmed `*30-40` on a real video downloads only that
   range, not the full video, then trims), then verified the full app flow

@@ -282,11 +282,15 @@ class ThumbnailWorker(QObject):
 
 def _clip_section_args(clip_start, clip_end):
     """--download-sections args for a time-range clip (yt-dlp seeks/range-requests where the
-    format supports it, rather than downloading the full video). --force-keyframes-at-cuts
-    re-encodes just around the cut points for frame-accurate boundaries - needs ffmpeg, already
-    a hard dependency of this app. No-op unless both bounds are given."""
+    format supports it, rather than downloading the full video). Deliberately NOT passing
+    --force-keyframes-at-cuts: that flag doesn't just touch up the cut points, it re-encodes the
+    ENTIRE selected range with libx264 end to end - for a several-minute clip that's minutes of
+    CPU-bound encoding (observed ~0.28x realtime on a 1080p60 clip), which defeats the point of a
+    "quick clip" feature and looks exactly like a hung download. Without it, yt-dlp stream-copies
+    and snaps cuts to the nearest keyframe (usually within a few seconds) - trading a small amount
+    of boundary precision for downloads that are actually fast. No-op unless both bounds are given."""
     if clip_start is None or clip_end is None: return []
-    return ["--download-sections", f"*{clip_start}-{clip_end}", "--force-keyframes-at-cuts"]
+    return ["--download-sections", f"*{clip_start}-{clip_end}"]
 
 class DownloadWorker(QObject):
     def __init__(self, url, format_selection, save_path, unique_id, cookies_path=None, embed_subs=False, embed_metadata=False, clip_start=None, clip_end=None, concurrent_fragments=None):
