@@ -23,6 +23,7 @@ STRINGS = {
     "SHOW_MORE_BUTTON": "Show More...",
     "EMBED_SUBS_LABEL": "Embed Subtitles",
     "EMBED_METADATA_LABEL": "Embed Thumbnail && Metadata",
+    "PARALLEL_FRAGMENTS_LABEL": "Faster Downloads (Parallel Fragments)",
     "CLIPBOARD_HINT_TEXT": "📋 Paste copied link?",
     "CLIP_CHECKBOX_LABEL": "Download Clip Only",
     "CLIP_START_PLACEHOLDER": "Start (mm:ss)",

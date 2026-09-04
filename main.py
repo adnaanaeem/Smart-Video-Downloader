@@ -40,6 +40,10 @@ def get_settings_path():
 
 # --- Main Application Window ---
 class SmartVideoDownloader(QMainWindow):
+    # yt-dlp's -N/--concurrent-fragments: a moderate default that helps on sites that don't
+    # throttle per-connection without being aggressive enough to look like abuse on ones that do.
+    PARALLEL_FRAGMENTS_COUNT = 4
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"{config.APP_TITLE} {config.APP_VERSION}"); self.setWindowIcon(QIcon(resource_path("icon.ico"))); self.setMinimumSize(850, 700)
@@ -202,6 +206,7 @@ class SmartVideoDownloader(QMainWindow):
         height_map = {STRINGS["PLAYLIST_QUALITY_1080P"]: 1080, STRINGS["PLAYLIST_QUALITY_720P"]: 720, STRINGS["PLAYLIST_QUALITY_480P"]: 480}
         max_height = height_map.get(quality_text)
         embed_subs = self.embed_subs_checkbox.isChecked(); embed_metadata = self.embed_metadata_checkbox.isChecked()
+        concurrent_fragments = self.PARALLEL_FRAGMENTS_COUNT if self.parallel_fragments_checkbox.isChecked() else None
 
         for entry in selected:
             video_url = entry.get('url') or entry.get('webpage_url') or entry.get('id')
@@ -212,12 +217,12 @@ class SmartVideoDownloader(QMainWindow):
 
             if is_mp3:
                 full_path = os.path.join(self.save_path, f"{safe_title}.mp3")
-                request = {'kind': 'mp3', 'url': video_url, 'save_path': full_path, 'embed_subs': embed_subs, 'embed_metadata': embed_metadata}
+                request = {'kind': 'mp3', 'url': video_url, 'save_path': full_path, 'embed_subs': embed_subs, 'embed_metadata': embed_metadata, 'concurrent_fragments': concurrent_fragments}
                 self._queue_download(unique_id, title, STRINGS["MP3_FORMAT_DETAILS"], request)
             else:
                 format_selection = f"bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]" if max_height else "bestvideo+bestaudio/best"
                 full_path = os.path.join(self.save_path, f"{safe_title}.mp4")
-                request = {'kind': 'video', 'url': video_url, 'format_selection': format_selection, 'save_path': full_path, 'embed_subs': embed_subs, 'embed_metadata': embed_metadata}
+                request = {'kind': 'video', 'url': video_url, 'format_selection': format_selection, 'save_path': full_path, 'embed_subs': embed_subs, 'embed_metadata': embed_metadata, 'concurrent_fragments': concurrent_fragments}
                 self._queue_download(unique_id, title, quality_text, request)
 
     def _create_save_path_section(self):
@@ -250,8 +255,10 @@ class SmartVideoDownloader(QMainWindow):
         extras_bar = QWidget(); extras_layout = QHBoxLayout(extras_bar); extras_layout.setContentsMargins(0, 0, 0, 0)
         self.embed_subs_checkbox = QCheckBox(STRINGS["EMBED_SUBS_LABEL"]); self.embed_metadata_checkbox = QCheckBox(STRINGS["EMBED_METADATA_LABEL"])
         self.clip_checkbox = QCheckBox(STRINGS["CLIP_CHECKBOX_LABEL"]); self.clip_checkbox.toggled.connect(self._on_clip_checkbox_toggled)
+        self.parallel_fragments_checkbox = QCheckBox(STRINGS["PARALLEL_FRAGMENTS_LABEL"])
         extras_layout.addWidget(self.embed_subs_checkbox); extras_layout.addSpacing(15); extras_layout.addWidget(self.embed_metadata_checkbox)
-        extras_layout.addSpacing(15); extras_layout.addWidget(self.clip_checkbox); extras_layout.addStretch()
+        extras_layout.addSpacing(15); extras_layout.addWidget(self.clip_checkbox)
+        extras_layout.addSpacing(15); extras_layout.addWidget(self.parallel_fragments_checkbox); extras_layout.addStretch()
 
         self.clip_row = QWidget(); clip_layout = QHBoxLayout(self.clip_row); clip_layout.setContentsMargins(0, 0, 0, 0)
         self.clip_start_input = QLineEdit(); self.clip_start_input.setPlaceholderText(STRINGS["CLIP_START_PLACEHOLDER"]); self.clip_start_input.setFixedWidth(120); self.clip_start_input.setObjectName("clipTimeInput")
@@ -607,6 +614,7 @@ class SmartVideoDownloader(QMainWindow):
         request = {
             'kind': 'video', 'url': self.fetched_data['webpage_url'], 'format_selection': format_selection,
             'save_path': save_path, 'embed_subs': self.embed_subs_checkbox.isChecked(), 'embed_metadata': self.embed_metadata_checkbox.isChecked(),
+            'concurrent_fragments': self.PARALLEL_FRAGMENTS_COUNT if self.parallel_fragments_checkbox.isChecked() else None,
             'clip_start': clip_start, 'clip_end': clip_end,
         }
         self._queue_download(unique_id, self.fetched_data['title'], format_details, request, source_button=btn)
@@ -630,6 +638,7 @@ class SmartVideoDownloader(QMainWindow):
             request = {
                 'kind': 'mp3', 'url': self.fetched_data['webpage_url'], 'save_path': full_path,
                 'embed_subs': self.embed_subs_checkbox.isChecked(), 'embed_metadata': self.embed_metadata_checkbox.isChecked(),
+            'concurrent_fragments': self.PARALLEL_FRAGMENTS_COUNT if self.parallel_fragments_checkbox.isChecked() else None,
                 'clip_start': clip_start, 'clip_end': clip_end,
             }
             self._queue_download(unique_id, self.fetched_data['title'], format_details, request, source_button=btn)
@@ -677,9 +686,9 @@ class SmartVideoDownloader(QMainWindow):
         """Starts (or resumes, via yt-dlp's default --continue behavior) the worker for a queued request."""
         thread = QThread()
         if request['kind'] == 'mp3':
-            worker = Mp3DownloadWorker(request['url'], request['save_path'], unique_id, self.cookies_path, request.get('embed_subs', False), request.get('embed_metadata', False), request.get('clip_start'), request.get('clip_end'))
+            worker = Mp3DownloadWorker(request['url'], request['save_path'], unique_id, self.cookies_path, request.get('embed_subs', False), request.get('embed_metadata', False), request.get('clip_start'), request.get('clip_end'), request.get('concurrent_fragments'))
         else:
-            worker = DownloadWorker(request['url'], request['format_selection'], request['save_path'], unique_id, self.cookies_path, request.get('embed_subs', False), request.get('embed_metadata', False), request.get('clip_start'), request.get('clip_end'))
+            worker = DownloadWorker(request['url'], request['format_selection'], request['save_path'], unique_id, self.cookies_path, request.get('embed_subs', False), request.get('embed_metadata', False), request.get('clip_start'), request.get('clip_end'), request.get('concurrent_fragments'))
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.signals.progress.connect(self._update_download_progress); worker.signals.download_finished.connect(self._on_download_finished)

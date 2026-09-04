@@ -153,6 +153,32 @@ the two). Saved on every change and on `closeEvent`.
 
 Keep entries short: version/date, what changed, why, where.
 
+### 2026-09-04 — parallel-fragment downloads (opt-in, off by default)
+- **feat:** "Faster Downloads (Parallel Fragments)" checkbox next to the
+  other download-time toggles. When on, adds yt-dlp's `-N 4`
+  (`--concurrent-fragments`, `PARALLEL_FRAGMENTS_COUNT` class constant on
+  `SmartVideoDownloader`) to the download command — fetches multiple
+  fragments of a DASH/HLS video concurrently instead of one at a time.
+  Wired through `main.py`'s `_start_download_worker`/`_on_mp3_row_clicked`/
+  `_on_playlist_download_clicked` → request dict → `_launch_download` →
+  `DownloadWorker`/`Mp3DownloadWorker` (new `concurrent_fragments` param on
+  both, `workers.py`), same plumbing pattern as `embed_subs`/`clip_start`.
+  **Deliberately shipped off by default, not as the "free speed win" it's
+  often described as:** measured it directly before implementing anything
+  — a real A/B (`-N 1` vs `-N 8`, same 1080p YouTube format, same session)
+  took 3m17s sequential vs **4m38s concurrent, i.e. slower**. Both runs
+  showed heavy, bursty near-zero-then-spike throttling patterns typical of
+  YouTube-side rate-limiting; the working theory is that opening more
+  simultaneous connections against a server-throttled source doesn't
+  increase aggregate throughput and just adds connection overhead. This
+  isn't a fully controlled test (sequential runs, not simultaneous, so
+  network conditions could have shifted between them) but it directly
+  contradicts the assumption that concurrency is a strict win, so it's
+  presented to users as an option to try, not a default that could make
+  someone's downloads slower without them knowing why. May still help on
+  sites/CDNs that don't throttle per-connection the way YouTube did in
+  this test.
+
 ### 2026-09-04 — clip/time-range downloading
 - **feat: download just a portion of a video** ("Download Clip Only"
   checkbox in the formats section, next to the embed checkboxes). Reveals

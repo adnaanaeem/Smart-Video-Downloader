@@ -55,7 +55,10 @@ A modern, feature-rich desktop application for downloading videos and audio from
 *   **Playlist Support:** Paste a playlist link to select and bulk-download multiple videos at once.
 *   **Cancel & Retry:** Cancel an in-progress download or retry a failed one directly from the queue — retrying resumes the partial file rather than starting over.
 *   **Subtitle & Metadata Embedding:** Optionally embed subtitles, thumbnail, and metadata into your downloads.
+*   **Clip/Time-Range Downloading:** Download just a portion of a video (e.g. 1:30–4:00) instead of the whole thing.
+*   **Optional Parallel-Fragment Downloads:** An off-by-default toggle to fetch multiple fragments at once — can speed things up on sites that don't rate-limit per connection.
 *   **Clipboard Link Detection:** A dismissible hint offers to paste a video link you've just copied.
+*   **"Show in Folder" Button:** Jump straight to a completed download in Explorer/Finder.
 *   **MP3 Conversion:** Download and convert any video to a high-quality MP3 file.
 *   **Private Video Support:** Download age-restricted or members-only content by providing a single, consolidated `cookies.txt` file.
 *   **Persistent User Settings:** Remembers your last-used save location and cookies file between sessions.

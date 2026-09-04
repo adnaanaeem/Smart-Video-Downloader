@@ -289,7 +289,7 @@ def _clip_section_args(clip_start, clip_end):
     return ["--download-sections", f"*{clip_start}-{clip_end}", "--force-keyframes-at-cuts"]
 
 class DownloadWorker(QObject):
-    def __init__(self, url, format_selection, save_path, unique_id, cookies_path=None, embed_subs=False, embed_metadata=False, clip_start=None, clip_end=None):
+    def __init__(self, url, format_selection, save_path, unique_id, cookies_path=None, embed_subs=False, embed_metadata=False, clip_start=None, clip_end=None, concurrent_fragments=None):
         super().__init__()
         self.signals = WorkerSignals()
         self.url = url
@@ -301,6 +301,7 @@ class DownloadWorker(QObject):
         self.embed_metadata = embed_metadata
         self.clip_start = clip_start
         self.clip_end = clip_end
+        self.concurrent_fragments = concurrent_fragments
         self.process = None
         self.cancelled = False
 
@@ -315,6 +316,7 @@ class DownloadWorker(QObject):
             if self.embed_subs: cmd.extend(["--write-subs", "--sub-langs", "en.*,und", "--embed-subs"])
             if self.embed_metadata: cmd.extend(["--embed-thumbnail", "--embed-metadata"])
             cmd.extend(_clip_section_args(self.clip_start, self.clip_end))
+            if self.concurrent_fragments: cmd.extend(["-N", str(self.concurrent_fragments)])
 
             self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', creationflags=CREATE_NO_WINDOW)
             output_lines = []; progress_regex = re.compile(r"\[download\]\s+(?P<percent>[\d\.]+)%")
@@ -331,11 +333,12 @@ class DownloadWorker(QObject):
         except Exception as e: self.signals.download_finished.emit(self.unique_id, False, str(e))
 
 class Mp3DownloadWorker(QObject):
-    def __init__(self, url, save_path, unique_id, cookies_path=None, embed_subs=False, embed_metadata=False, clip_start=None, clip_end=None):
+    def __init__(self, url, save_path, unique_id, cookies_path=None, embed_subs=False, embed_metadata=False, clip_start=None, clip_end=None, concurrent_fragments=None):
         super().__init__(); self.signals = WorkerSignals(); self.url = url; self.save_path = save_path
         self.unique_id = unique_id; self.cookies_path = cookies_path
         self.embed_subs = embed_subs; self.embed_metadata = embed_metadata
         self.clip_start = clip_start; self.clip_end = clip_end
+        self.concurrent_fragments = concurrent_fragments
         self.process = None; self.cancelled = False
 
     def cancel(self):
@@ -349,6 +352,7 @@ class Mp3DownloadWorker(QObject):
             if self.embed_subs: cmd.extend(["--write-subs", "--sub-langs", "en.*,und"])
             if self.embed_metadata: cmd.extend(["--embed-thumbnail", "--embed-metadata"])
             cmd.extend(_clip_section_args(self.clip_start, self.clip_end))
+            if self.concurrent_fragments: cmd.extend(["-N", str(self.concurrent_fragments)])
             self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', creationflags=CREATE_NO_WINDOW)
             output_lines = []; progress_regex = re.compile(r"\[download\]\s+Destination:\s.*\s+\(frag\s\d+/\d+\)\n\[download\]\s+(?P<percent>[\d\.]+)%")
             dest_regex = re.compile(r"\[ExtractAudio\] Destination: (.*)")
