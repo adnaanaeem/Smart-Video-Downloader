@@ -1,4 +1,4 @@
-; Inno Setup Script for Smart Video Downloader v2.2.0
+; Inno Setup Script for Smart Video Downloader v2.3.0
 ; Created by Adnan Naeem
 ;
 ; Paths below are relative to this .iss file's own directory (the repo root),
@@ -9,7 +9,7 @@
 ; This unique ID must NOT change between versions.
 AppId={{C6A8E3A8-245B-44A7-927A-1A8C8F7E4B3F}}
 AppName=Smart Video Downloader
-AppVersion=2.2.0
+AppVersion=2.3.0
 AppPublisher=Adnan Naeem
 DefaultDirName={autopf}\Smart Video Downloader
 DisableProgramGroupPage=yes

@@ -12,7 +12,13 @@ A modern, feature-rich desktop application for downloading videos and audio from
 
 ### What's New
 
-*   **v2.2.0 (Current):**
+*   **v2.3.0 (Current):**
+    *   `feat:` **Clip/time-range downloading** — download just a portion of a video (e.g. 1:30–4:00) instead of the whole thing.
+    *   `feat:` Optional **parallel-fragment downloads** for a possible speed boost (off by default — see the project notes on why it isn't a guaranteed win).
+    *   `feat:` **"Show in Folder"** button on completed downloads — jump straight to the file in Explorer/Finder.
+    *   `fix:` A real hang: downloading a clip longer than ~30 seconds could silently CPU-encode for many minutes with zero progress feedback, indistinguishable from the app being frozen.
+
+*   **v2.2.0:**
     *   `feat:` **Playlist support** — paste a playlist link to select videos and bulk-download them at a chosen quality.
     *   `feat:` **Cancel & Retry** on downloads — retrying resumes the partial file instead of starting over.
     *   `feat:` Optional **subtitle and thumbnail/metadata embedding** for downloads.

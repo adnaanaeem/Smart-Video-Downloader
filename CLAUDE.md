@@ -153,7 +153,7 @@ the two). Saved on every change and on `closeEvent`.
 
 Keep entries short: version/date, what changed, why, where.
 
-### 2026-09-04 — fix: clip downloads looked hung for anything longer than ~30s
+### 2026-09-04 (v2.3.0) — fix: clip downloads looked hung for anything longer than ~30s
 - **fix (real bug, found by the user testing a real 6-minute clip):**
   `--force-keyframes-at-cuts` (added in the clip-download feature below)
   does **not** just touch up the cut points — it re-encodes the *entire*
@@ -187,7 +187,7 @@ Keep entries short: version/date, what changed, why, where.
   input shape closer to how a feature will actually be used, not just the
   cheapest case that proves the mechanism works at all.
 
-### 2026-09-04 — parallel-fragment downloads (opt-in, off by default)
+### 2026-09-04 (v2.3.0) — parallel-fragment downloads (opt-in, off by default)
 - **feat:** "Faster Downloads (Parallel Fragments)" checkbox next to the
   other download-time toggles. When on, adds yt-dlp's `-N 4`
   (`--concurrent-fragments`, `PARALLEL_FRAGMENTS_COUNT` class constant on
@@ -213,7 +213,7 @@ Keep entries short: version/date, what changed, why, where.
   sites/CDNs that don't throttle per-connection the way YouTube did in
   this test.
 
-### 2026-09-04 — clip/time-range downloading
+### 2026-09-04 (v2.3.0) — clip/time-range downloading
 - **feat: download just a portion of a video** ("Download Clip Only"
   checkbox in the formats section, next to the embed checkboxes). Reveals
   Start/End `mm:ss` inputs plus a "Video length: H:MM:SS" hint sourced from
