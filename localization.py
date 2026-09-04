@@ -133,6 +133,7 @@ STRINGS = {
     "CANCELLED_STATUS": "Cancelled",
     "CANCEL_BUTTON": "Cancel",
     "RETRY_BUTTON": "Retry",
+    "SHOW_IN_FOLDER_BUTTON": "Show in Folder",
     "ERROR_FETCH_PRIVATE": "Could not fetch video info (it may be private).",
     "ERROR_FETCH_GENERIC": "Could not fetch video info.",
     "ERROR_EMPTY_URL": "URL field cannot be empty.",

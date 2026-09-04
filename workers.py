@@ -106,7 +106,7 @@ class DownloadItem(QWidget):
     def __init__(self, title, format_details, parent=None):
         super().__init__(parent); self.setFixedHeight(60); self.state = "running"; main_layout = QVBoxLayout(self); main_layout.setContentsMargins(10, 5, 10, 5); main_layout.setSpacing(5)
         top_layout = QHBoxLayout(); self.title_label = QLabel(f"{title} - {format_details}"); self.title_label.setObjectName("queueItemTitle"); self.percentage_label = QLabel(STRINGS["WAITING_STATUS"]); self.percentage_label.setObjectName("queueItemPercent")
-        self.action_btn = QPushButton(STRINGS["CANCEL_BUTTON"]); self.action_btn.setObjectName("queueItemActionButton"); self.action_btn.setFixedSize(70, 24)
+        self.action_btn = QPushButton(STRINGS["CANCEL_BUTTON"]); self.action_btn.setObjectName("queueItemActionButton"); self.action_btn.setFixedSize(100, 24)
         top_layout.addWidget(self.title_label); top_layout.addStretch(); top_layout.addWidget(self.percentage_label); top_layout.addSpacing(8); top_layout.addWidget(self.action_btn)
         self.progress_bar = QProgressBar(); self.progress_bar.setTextVisible(False); self.progress_bar.setFixedHeight(8); self.progress_bar.setValue(0)
         main_layout.addLayout(top_layout); main_layout.addWidget(self.progress_bar); self.setLayout(main_layout)

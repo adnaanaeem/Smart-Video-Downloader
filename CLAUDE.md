@@ -153,6 +153,30 @@ the two). Saved on every change and on `closeEvent`.
 
 Keep entries short: version/date, what changed, why, where.
 
+### 2026-09-04 — v2.2.0 shipped without macOS Intel (runner scarcity) + "Show in Folder" button
+- **v2.2.0 shipped as Windows + macOS Apple Silicon only.** `build-macos-intel`
+  never got a runner from GitHub's `macos-13` pool — queued 27+ minutes,
+  confirmed via githubstatus.com there was no active incident, just genuine
+  Intel-runner scarcity as GitHub shrinks that fleet. Cancelled the stuck
+  run, downloaded the two artifacts that *had* finished (`build-windows`,
+  `build-macos-arm64`) via `gh run download`, and published the v2.2.0
+  GitHub Release manually with `gh release create` using just those two.
+  Removed the Intel badge/link/install-step wording from `README.md` so
+  nothing points at a nonexistent asset, left a one-line "planned for a
+  future release" note. The `release.yml` workflow itself is unchanged and
+  still tries all three platforms on the next tag.
+- **feat: "Show in Folder" button.** Reuses the existing queue-item action
+  button slot (previously hidden on success) — on a completed download it
+  now shows this instead, wired through the same `_on_queue_item_action_clicked`
+  dispatcher that already handles Cancel/Retry (adds a third branch keyed on
+  `item.state == "completed"`). New `main.py` `_reveal_in_file_manager(path)`
+  helper: Windows uses `explorer /select,"path"` (falls back to just opening
+  the containing folder via `os.startfile` if the exact file is missing),
+  macOS uses `open -R path` (or plain `open` on the folder as fallback).
+  Verified live through the actual GUI: downloaded a real video, clicked
+  "Show in Folder", watched File Explorer open directly to Downloads with
+  the file pre-selected.
+
 ### 2026-09-04 — startup clipboard check + a real CI hang caught right after tagging v2.2.0
 - **feat:** The clipboard "Paste copied link?" hint (see v2.2.0 entry below)
   only checked on window *re*-activation, not on first launch. Added a

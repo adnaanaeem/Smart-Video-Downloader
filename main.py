@@ -4,6 +4,7 @@ import sys
 import os
 import re
 import json
+import subprocess
 import webbrowser
 from pathlib import Path
 from PyQt6.QtWidgets import (
@@ -636,6 +637,9 @@ class SmartVideoDownloader(QMainWindow):
         if item.state == "running":
             worker = self.active_workers.get(unique_id)
             if worker: worker.cancel()
+        elif item.state == "completed":
+            request = self.download_requests.get(unique_id)
+            if request: self._reveal_in_file_manager(request.get('save_path'))
         else:
             request = self.download_requests.get(unique_id)
             if not request: return
@@ -643,6 +647,18 @@ class SmartVideoDownloader(QMainWindow):
             item.progress_bar.setProperty("status", ""); item.progress_bar.style().unpolish(item.progress_bar); item.progress_bar.style().polish(item.progress_bar)
             item.action_btn.setText(STRINGS["CANCEL_BUTTON"])
             self._launch_download(unique_id, request)
+
+    def _reveal_in_file_manager(self, path):
+        if not path: return
+        folder = os.path.dirname(path)
+        try:
+            if sys.platform.startswith("darwin"):
+                if os.path.exists(path): subprocess.Popen(["open", "-R", path])
+                elif os.path.isdir(folder): subprocess.Popen(["open", folder])
+            else:
+                if os.path.exists(path): subprocess.Popen(f'explorer /select,"{path}"')
+                elif os.path.isdir(folder): os.startfile(folder)
+        except Exception: pass
 
     def _update_download_progress(self, unique_id, percentage):
         if unique_id in self.download_items: item = self.download_items[unique_id]; item.progress_bar.setValue(percentage); item.percentage_label.setText(f"{percentage}%")
@@ -654,7 +670,7 @@ class SmartVideoDownloader(QMainWindow):
             if success:
                 item.state = "completed"
                 self.downloads_completed += 1; item.percentage_label.setText(STRINGS["COMPLETED_STATUS"]); item.progress_bar.setValue(100); item.progress_bar.setProperty("status", "completed")
-                item.action_btn.hide()
+                item.action_btn.setText(STRINGS["SHOW_IN_FOLDER_BUTTON"]); item.action_btn.setEnabled(True)
             else:
                 cancelled = (message == STRINGS["CANCELLED_STATUS"])
                 item.state = "cancelled" if cancelled else "failed"
