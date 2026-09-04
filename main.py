@@ -249,11 +249,26 @@ class SmartVideoDownloader(QMainWindow):
         filter_layout.addWidget(language_label); filter_layout.addWidget(self.language_filter)
         extras_bar = QWidget(); extras_layout = QHBoxLayout(extras_bar); extras_layout.setContentsMargins(0, 0, 0, 0)
         self.embed_subs_checkbox = QCheckBox(STRINGS["EMBED_SUBS_LABEL"]); self.embed_metadata_checkbox = QCheckBox(STRINGS["EMBED_METADATA_LABEL"])
-        extras_layout.addWidget(self.embed_subs_checkbox); extras_layout.addSpacing(15); extras_layout.addWidget(self.embed_metadata_checkbox); extras_layout.addStretch()
+        self.clip_checkbox = QCheckBox(STRINGS["CLIP_CHECKBOX_LABEL"]); self.clip_checkbox.toggled.connect(self._on_clip_checkbox_toggled)
+        extras_layout.addWidget(self.embed_subs_checkbox); extras_layout.addSpacing(15); extras_layout.addWidget(self.embed_metadata_checkbox)
+        extras_layout.addSpacing(15); extras_layout.addWidget(self.clip_checkbox); extras_layout.addStretch()
+
+        self.clip_row = QWidget(); clip_layout = QHBoxLayout(self.clip_row); clip_layout.setContentsMargins(0, 0, 0, 0)
+        self.clip_start_input = QLineEdit(); self.clip_start_input.setPlaceholderText(STRINGS["CLIP_START_PLACEHOLDER"]); self.clip_start_input.setFixedWidth(120); self.clip_start_input.setObjectName("clipTimeInput")
+        self.clip_end_input = QLineEdit(); self.clip_end_input.setPlaceholderText(STRINGS["CLIP_END_PLACEHOLDER"]); self.clip_end_input.setFixedWidth(120); self.clip_end_input.setObjectName("clipTimeInput")
+        dash_label = QLabel("–")
+        self.clip_duration_label = QLabel(""); self.clip_duration_label.setObjectName("filterDropdownLabel")
+        clip_layout.addWidget(self.clip_start_input); clip_layout.addWidget(dash_label); clip_layout.addWidget(self.clip_end_input)
+        clip_layout.addSpacing(15); clip_layout.addWidget(self.clip_duration_label); clip_layout.addStretch()
+        self.clip_row.hide()
+
         self.formats_table = QTableWidget(); self.formats_table.setColumnCount(5); self.formats_table.setHorizontalHeaderLabels(["Quality", "Format", "Size", "Note", "Action"]); header = self.formats_table.horizontalHeader(); header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.formats_table.verticalHeader().hide(); self.formats_table.setAlternatingRowColors(True); self.formats_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection); self.formats_table.setFocusPolicy(Qt.FocusPolicy.NoFocus); self.formats_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.empty_filter_label = QLabel(STRINGS["NO_FORMATS_MATCH"]); self.empty_filter_label.setAlignment(Qt.AlignmentFlag.AlignCenter); self.empty_filter_label.setObjectName("emptyFilterLabel"); self.empty_filter_label.hide()
-        formats_layout.addWidget(filter_bar); formats_layout.addWidget(extras_bar); formats_layout.addWidget(self.formats_table); formats_layout.addWidget(self.empty_filter_label); self.panel_layout.addWidget(self.formats_panel)
+        formats_layout.addWidget(filter_bar); formats_layout.addWidget(extras_bar); formats_layout.addWidget(self.clip_row); formats_layout.addWidget(self.formats_table); formats_layout.addWidget(self.empty_filter_label); self.panel_layout.addWidget(self.formats_panel)
+
+    def _on_clip_checkbox_toggled(self, checked):
+        self.clip_row.setVisible(checked)
 
     def _create_downloads_queue(self):
         self.downloads_queue_panel = QFrame(); self.downloads_queue_panel.setObjectName("downloadsQueuePanel")
@@ -458,6 +473,9 @@ class SmartVideoDownloader(QMainWindow):
 
     def _populate_video_data(self):
         self.video_title.setText(self.fetched_data.get("title", "N/A")); self.video_description.setText(self.fetched_data.get("description", STRINGS["NO_DESCRIPTION"]))
+        duration = self.fetched_data.get('duration')
+        self.clip_duration_label.setText(STRINGS["CLIP_DURATION_HINT"].format(duration=self._format_duration(duration)) if duration else "")
+        self.clip_checkbox.setChecked(False); self.clip_start_input.clear(); self.clip_end_input.clear()
         thumb_url = self.fetched_data.get('thumbnail')
         if thumb_url:
             self.thumb_thread = QThread(); self.thumb_worker = ThumbnailWorker(thumb_url); self.thumb_worker.moveToThread(self.thumb_thread)
@@ -563,42 +581,87 @@ class SmartVideoDownloader(QMainWindow):
         self.formats_table.setCellWidget(mp3_row_index, 4, mp3_widget); self.formats_table.setRowHeight(mp3_row_index, mp3_btn.sizeHint().height() + 20)
 
     def _on_download_clicked(self, row, video_id, audio_id=None):
+        clip = self._get_clip_range()
+        if clip is False: return
+        clip_start, clip_end = clip
+
         quality = self.formats_table.item(row, 0).text(); ext = self.formats_table.item(row, 1).text(); safe_title = re.sub(r'[\\/*?:"<>|]', "", self.fetched_data['title'])
         filename = f"{safe_title} - {quality}.{ext}"
         if audio_id: filename = f"{safe_title} - {quality}.mp4"
+        if clip_start is not None: filename = self._add_clip_suffix_to_filename(filename, clip_start, clip_end)
         full_path = os.path.join(self.save_path, filename); proceed = not os.path.exists(full_path)
         if not proceed:
             dialog = ModalDialog(STRINGS["DIALOG_TITLE_CONFIRM_OVERWRITE"], STRINGS["CONFIRM_OVERWRITE_CONTENT"].format(filename=filename), {STRINGS["OVERWRITE_BUTTON"]: "overwrite", "Cancel": "cancel"}, self)
             if dialog.exec() and dialog.result == "overwrite": proceed = True
-        if proceed: self._start_download_worker(row, video_id, audio_id, full_path)
+        if proceed: self._start_download_worker(row, video_id, audio_id, full_path, clip_start, clip_end)
 
-    def _start_download_worker(self, row, video_id, audio_id, save_path):
+    def _start_download_worker(self, row, video_id, audio_id, save_path, clip_start=None, clip_end=None):
         btn = self.formats_table.cellWidget(row, 4).findChild(QPushButton); btn.setText(STRINGS["QUEUED_STATUS"]); btn.setDisabled(True)
 
         quality = self.formats_table.item(row, 0).text(); note = self.formats_table.item(row, 3).text()
         format_details = f"{quality} ({note})"
+        if clip_start is not None: format_details += STRINGS["CLIP_NOTE_SUFFIX"].format(start=self._format_duration(clip_start), end=self._format_duration(clip_end))
         unique_id = f"{self.fetched_data['id']}-{video_id}-{audio_id or ''}"
         format_selection = f"{video_id}+{audio_id}" if audio_id else video_id
 
         request = {
             'kind': 'video', 'url': self.fetched_data['webpage_url'], 'format_selection': format_selection,
             'save_path': save_path, 'embed_subs': self.embed_subs_checkbox.isChecked(), 'embed_metadata': self.embed_metadata_checkbox.isChecked(),
+            'clip_start': clip_start, 'clip_end': clip_end,
         }
         self._queue_download(unique_id, self.fetched_data['title'], format_details, request, source_button=btn)
 
     def _on_mp3_row_clicked(self, row):
-        safe_title = re.sub(r'[\\/*?:"<>|]', "", self.fetched_data['title']); filename = f"{safe_title}.mp3"; full_path = os.path.join(self.save_path, filename); proceed = not os.path.exists(full_path)
+        clip = self._get_clip_range()
+        if clip is False: return
+        clip_start, clip_end = clip
+
+        safe_title = re.sub(r'[\\/*?:"<>|]', "", self.fetched_data['title']); filename = f"{safe_title}.mp3"
+        if clip_start is not None: filename = self._add_clip_suffix_to_filename(filename, clip_start, clip_end)
+        full_path = os.path.join(self.save_path, filename); proceed = not os.path.exists(full_path)
         if not proceed:
             dialog = ModalDialog(STRINGS["DIALOG_TITLE_CONFIRM_OVERWRITE"], STRINGS["CONFIRM_OVERWRITE_CONTENT"].format(filename=filename), {STRINGS["OVERWRITE_BUTTON"]: "overwrite", "Cancel": "cancel"}, self)
             if dialog.exec() and dialog.result == "overwrite": proceed = True
         if proceed:
             btn = self.formats_table.cellWidget(row, 4).findChild(QPushButton); btn.setText(STRINGS["QUEUED_STATUS"]); btn.setDisabled(True)
             unique_id = f"{self.fetched_data['id']}-mp3"
+            format_details = STRINGS["MP3_FORMAT_DETAILS"]
+            if clip_start is not None: format_details += STRINGS["CLIP_NOTE_SUFFIX"].format(start=self._format_duration(clip_start), end=self._format_duration(clip_end))
             request = {
                 'kind': 'mp3', 'url': self.fetched_data['webpage_url'], 'save_path': full_path,
                 'embed_subs': self.embed_subs_checkbox.isChecked(), 'embed_metadata': self.embed_metadata_checkbox.isChecked(),
+                'clip_start': clip_start, 'clip_end': clip_end,
             }
-            self._queue_download(unique_id, self.fetched_data['title'], STRINGS["MP3_FORMAT_DETAILS"], request, source_button=btn)
+            self._queue_download(unique_id, self.fetched_data['title'], format_details, request, source_button=btn)
+
+    def _get_clip_range(self):
+        """Returns (start, end) seconds if clip mode is on and valid, (None, None) if clip mode
+        is off, or False if clip mode is on but invalid (an error is shown; caller should abort)."""
+        if not self.clip_checkbox.isChecked(): return (None, None)
+        start = self._parse_time_to_seconds(self.clip_start_input.text())
+        end = self._parse_time_to_seconds(self.clip_end_input.text())
+        if start is None or end is None or start >= end:
+            self._show_error(STRINGS["CLIP_ERROR_INVALID_TIME"]); return False
+        return (start, end)
+
+    def _parse_time_to_seconds(self, text):
+        text = text.strip()
+        if not text: return None
+        parts = text.split(':')
+        if not all(p.isdigit() for p in parts) or not (1 <= len(parts) <= 3): return None
+        parts = [int(p) for p in parts]
+        if len(parts) == 1: return parts[0]
+        if len(parts) == 2: return parts[0] * 60 + parts[1]
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+
+    def _format_duration(self, seconds):
+        h, rem = divmod(int(seconds), 3600); m, s = divmod(rem, 60)
+        return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+    def _add_clip_suffix_to_filename(self, filename, start, end):
+        base, dot, ext = filename.rpartition('.')
+        clip_tag = f"[{start//60}m{start%60:02d}s-{end//60}m{end%60:02d}s]"
+        return f"{base} {clip_tag}.{ext}" if dot else f"{filename} {clip_tag}"
 
     def _queue_download(self, unique_id, title, format_details, request, source_button=None):
         """Creates the queue-list entry for a new download and launches it. Shared by single-video, MP3, and playlist downloads."""
@@ -614,9 +677,9 @@ class SmartVideoDownloader(QMainWindow):
         """Starts (or resumes, via yt-dlp's default --continue behavior) the worker for a queued request."""
         thread = QThread()
         if request['kind'] == 'mp3':
-            worker = Mp3DownloadWorker(request['url'], request['save_path'], unique_id, self.cookies_path, request.get('embed_subs', False), request.get('embed_metadata', False))
+            worker = Mp3DownloadWorker(request['url'], request['save_path'], unique_id, self.cookies_path, request.get('embed_subs', False), request.get('embed_metadata', False), request.get('clip_start'), request.get('clip_end'))
         else:
-            worker = DownloadWorker(request['url'], request['format_selection'], request['save_path'], unique_id, self.cookies_path, request.get('embed_subs', False), request.get('embed_metadata', False))
+            worker = DownloadWorker(request['url'], request['format_selection'], request['save_path'], unique_id, self.cookies_path, request.get('embed_subs', False), request.get('embed_metadata', False), request.get('clip_start'), request.get('clip_end'))
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.signals.progress.connect(self._update_download_progress); worker.signals.download_finished.connect(self._on_download_finished)

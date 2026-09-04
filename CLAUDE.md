@@ -153,6 +153,35 @@ the two). Saved on every change and on `closeEvent`.
 
 Keep entries short: version/date, what changed, why, where.
 
+### 2026-09-04 — clip/time-range downloading
+- **feat: download just a portion of a video** ("Download Clip Only"
+  checkbox in the formats section, next to the embed checkboxes). Reveals
+  Start/End `mm:ss` inputs plus a "Video length: H:MM:SS" hint sourced from
+  `fetched_data['duration']`. `main.py` `_get_clip_range()` validates and
+  parses the inputs (`_parse_time_to_seconds`, accepts `SS`/`MM:SS`/`H:MM:SS`),
+  returning `(None, None)` when the checkbox is off, `False` (with an error
+  already shown) if on but invalid, else `(start_seconds, end_seconds)`.
+  Wired into both `_on_download_clicked` and `_on_mp3_row_clicked` (not
+  playlist bulk downloads, out of scope for this pass) — appends a
+  `[XmYYs-XmYYs]` tag to the filename so a clip never collides with a
+  full-video download of the same title, and a matching `[Clip H:MM–H:MM]`
+  note in the queue-item label.
+  `workers.py`: new `_clip_section_args()` helper builds
+  `--download-sections "*START-END" --force-keyframes-at-cuts` (seconds,
+  not timestamps, to sidestep any format ambiguity) — added as an optional
+  `clip_start`/`clip_end` param on both `DownloadWorker` and
+  `Mp3DownloadWorker`. `--force-keyframes-at-cuts` re-encodes only around
+  the cut points (needs ffmpeg, already a hard dependency) for frame-accurate
+  boundaries rather than snapping to the nearest keyframe.
+  Verified the exact yt-dlp syntax and behavior directly via the CLI before
+  wiring it up (confirmed `*30-40` on a real video downloads only that
+  range, not the full video, then trims), then verified the full app flow
+  end-to-end with a scripted test (not GUI clicking, per user preference
+  during this session): queued a real download with `clip_start=30,
+  clip_end=40` through the actual `_queue_download`/`_launch_download`
+  pipeline, waited for completion, and confirmed via `ffmpeg -i` that the
+  output file's duration was exactly `00:00:10.00`.
+
 ### 2026-09-04 — v2.2.0 shipped without macOS Intel (runner scarcity) + "Show in Folder" button
 - **v2.2.0 shipped as Windows + macOS Apple Silicon only.** `build-macos-intel`
   never got a runner from GitHub's `macos-13` pool — queued 27+ minutes,

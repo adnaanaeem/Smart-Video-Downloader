@@ -24,6 +24,12 @@ STRINGS = {
     "EMBED_SUBS_LABEL": "Embed Subtitles",
     "EMBED_METADATA_LABEL": "Embed Thumbnail && Metadata",
     "CLIPBOARD_HINT_TEXT": "📋 Paste copied link?",
+    "CLIP_CHECKBOX_LABEL": "Download Clip Only",
+    "CLIP_START_PLACEHOLDER": "Start (mm:ss)",
+    "CLIP_END_PLACEHOLDER": "End (mm:ss)",
+    "CLIP_DURATION_HINT": "Video length: {duration}",
+    "CLIP_ERROR_INVALID_TIME": "Enter valid start/end times (e.g. 1:30), with start before end.",
+    "CLIP_NOTE_SUFFIX": " [Clip {start}–{end}]",
 
     # --- Playlist ---
     "PLAYLIST_PANEL_TITLE": "Playlist Detected",

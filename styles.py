@@ -56,6 +56,8 @@ def generate_stylesheet():
     #queueItemPercent {{ font-size: 13px; color: {THEME["TEXT_SECONDARY"]}; font-weight: bold; }}
     #queueItemActionButton {{ background-color: {THEME["BUTTON_SECONDARY"]}; color: {THEME["TEXT_PRIMARY"]}; font-size: 11px; border: none; border-radius: 5px; }}
     #queueItemActionButton:hover {{ background-color: {THEME["PRIMARY_ACCENT"]}; color: white; }}
+    #clipTimeInput {{ background-color: {THEME["INPUT_FIELD"]}; border: 1px solid {THEME["BORDER_SECONDARY"]}; border-radius: 6px; color: {THEME["TEXT_PRIMARY"]}; font-size: 13px; padding: 4px 8px; }}
+    #clipTimeInput:focus {{ border: 1px solid {THEME["PRIMARY_ACCENT"]}; }}
     #clipboardHintButton {{ background-color: transparent; color: {THEME["LINK"]}; border: none; text-align: left; font-size: 12px; padding: 2px 0px; }}
     #clipboardHintButton:hover {{ text-decoration: underline; }}
     QProgressBar {{ border: none; background-color: {THEME["PROGRESS_BAR_BG"]}; border-radius: 4px; }}
