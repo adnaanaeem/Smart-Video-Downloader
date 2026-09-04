@@ -24,6 +24,7 @@ STRINGS = {
     "EMBED_SUBS_LABEL": "Embed Subtitles",
     "EMBED_METADATA_LABEL": "Embed Thumbnail && Metadata",
     "PARALLEL_FRAGMENTS_LABEL": "Faster Downloads (Parallel Fragments)",
+    "PARALLEL_FRAGMENTS_CLIP_CONFLICT_TOOLTIP": "Not available with clip downloads — measured as a near-stall when combined with a time range.",
     "CLIPBOARD_HINT_TEXT": "📋 Paste copied link?",
     "CLIP_CHECKBOX_LABEL": "Download Clip Only",
     "CLIP_START_PLACEHOLDER": "Start (mm:ss)",

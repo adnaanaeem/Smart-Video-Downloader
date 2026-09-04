@@ -276,6 +276,13 @@ class SmartVideoDownloader(QMainWindow):
 
     def _on_clip_checkbox_toggled(self, checked):
         self.clip_row.setVisible(checked)
+        # Combining --download-sections with -N/--concurrent-fragments measured as a near-stall
+        # in practice (ffmpeg/yt-dlp alive for minutes with ~0 CPU, real network I/O barely
+        # moving) - worse than either alone. Disable parallel fragments while clipping is on
+        # rather than let a user hit that combination.
+        if checked: self.parallel_fragments_checkbox.setChecked(False)
+        self.parallel_fragments_checkbox.setDisabled(checked)
+        self.parallel_fragments_checkbox.setToolTip(STRINGS["PARALLEL_FRAGMENTS_CLIP_CONFLICT_TOOLTIP"] if checked else "")
 
     def _create_downloads_queue(self):
         self.downloads_queue_panel = QFrame(); self.downloads_queue_panel.setObjectName("downloadsQueuePanel")

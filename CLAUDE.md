@@ -153,6 +153,35 @@ the two). Saved on every change and on `closeEvent`.
 
 Keep entries short: version/date, what changed, why, where.
 
+### 2026-09-04 (post-v2.3.0) — fix: clip + parallel-fragments combo near-stalls; not in the tagged v2.3.0 build
+- **fix (real bug, found after user re-tested the force-keyframes fix above
+  and reported it was "still very long" despite the fix landing):** the
+  force-keyframes fix above solved the *encoding* hang, but the user's
+  test had **both** "Download Clip Only" and "Faster Downloads (Parallel
+  Fragments)" checked at once. Reproduced via a scripted diagnostic
+  (queuing a real download with `clip_start`/`clip_end` *and*
+  `concurrent_fragments=4` together, no GUI): after ~7 minutes the
+  `ffmpeg` process was still alive but `Get-Process` showed only 3.15s of
+  accumulated CPU time total — i.e. essentially stalled, not merely slow.
+  `--download-sections` (a targeted HTTP range request) and
+  `-N`/`--concurrent-fragments` (splitting one stream into N parallel
+  range requests) apparently interact badly — worse than either flag
+  alone, which each work fine individually.
+  **Fix:** `main.py` `_on_clip_checkbox_toggled` now unchecks and disables
+  the parallel-fragments checkbox whenever clip mode is turned on (re-
+  enabled when clip mode is turned back off), with a tooltip explaining
+  why (`localization.py` `PARALLEL_FRAGMENTS_CLIP_CONFLICT_TOOLTIP`).
+  Verified via scripted check: toggling `clip_checkbox` to `True` flips
+  `parallel_fragments_checkbox` to unchecked *and* disabled; toggling back
+  off re-enables it. `pytest tests/ -q` still 14/14 passing (no test
+  coverage added for this specific interaction since it needs a real
+  multi-minute network download to reproduce, not something worth doing
+  in CI — the UI-level prevention is the actual fix).
+  **Note:** this fix was made *after* the `v2.3.0` tag was already pushed
+  and its release build completed — the tagged v2.3.0 installers do
+  **not** include it. Flagged to the user; whether it ships as a v2.3.1
+  patch or waits is their call, not assumed.
+
 ### 2026-09-04 (v2.3.0) — fix: clip downloads looked hung for anything longer than ~30s
 - **fix (real bug, found by the user testing a real 6-minute clip):**
   `--force-keyframes-at-cuts` (added in the clip-download feature below)
