@@ -48,7 +48,7 @@ class SmartVideoDownloader(QMainWindow):
         self.app_update_thread = None; self.version_thread = None; self.ffmpeg_health_thread = None
         self.download_source_buttons = {}; self.download_requests = {}; self.active_workers = {}; self.active_threads = []
         self.playlist_entries = []; self.playlist_checkboxes = []
-        self.last_clipboard_hint_text = None
+        self.last_clipboard_hint_text = None; self._startup_clipboard_checked = False
         self._setup_ui(); 
         self._load_settings();
         self.is_updating_ytdlp = False
@@ -100,6 +100,12 @@ class SmartVideoDownloader(QMainWindow):
     def changeEvent(self, event):
         super().changeEvent(event)
         if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
+            self._check_clipboard_for_link()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._startup_clipboard_checked:
+            self._startup_clipboard_checked = True
             self._check_clipboard_for_link()
 
     def _check_clipboard_for_link(self):

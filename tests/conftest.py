@@ -22,9 +22,20 @@ def qapp():
 
 
 @pytest.fixture
-def make_window(qapp):
-    """Returns a factory that builds a fresh SmartVideoDownloader instance per test."""
+def make_window(qapp, monkeypatch):
+    """Returns a factory that builds a fresh SmartVideoDownloader instance per test.
+
+    check_dependencies() is stubbed out: in a fresh checkout (CI, or anyone without the
+    gitignored yt-dlp/ffmpeg binaries already present) it shows a blocking ModalDialog.exec()
+    asking to download-or-exit, which hangs forever under a headless/offscreen QApplication with
+    no user to click it. Discovered this the hard way - it passed locally (binaries already
+    present there) but hung the CI test job indefinitely until cancelled. These tests only
+    exercise the formats-table/worker logic, not the startup dependency flow, so stubbing it out
+    is correct, not just a workaround.
+    """
     import main
+
+    monkeypatch.setattr(main.SmartVideoDownloader, "check_dependencies", lambda self: None)
 
     def _make():
         return main.SmartVideoDownloader()

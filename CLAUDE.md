@@ -153,6 +153,38 @@ the two). Saved on every change and on `closeEvent`.
 
 Keep entries short: version/date, what changed, why, where.
 
+### 2026-09-04 — startup clipboard check + a real CI hang caught right after tagging v2.2.0
+- **feat:** The clipboard "Paste copied link?" hint (see v2.2.0 entry below)
+  only checked on window *re*-activation, not on first launch. Added a
+  `showEvent` override (guarded by `self._startup_clipboard_checked` so it
+  only fires once) that runs the same check on startup.
+- **fix (CI): the new `tests/` suite hung indefinitely in GitHub Actions.**
+  Caught this immediately after pushing the v2.2.0 tag — the release build
+  jobs succeeded, but the new `Tests` workflow sat "in progress" for 10+
+  minutes on a suite that runs in under a second locally. Root cause:
+  `make_window()`'s fixture instantiates the real `SmartVideoDownloader`,
+  whose `__init__` calls `check_dependencies()` — which, when `yt-dlp`/
+  `ffmpeg` don't exist (the CI checkout never fetches them, same as any
+  fresh clone), shows a blocking `ModalDialog(...).exec()` asking to
+  download-or-exit. Under a headless/offscreen `QApplication` with no user
+  to click it, that `.exec()` blocks forever. This never showed up locally
+  purely because the real binaries already happen to sit in this working
+  tree. **Verified the exact failure mode by reproducing it locally**:
+  temporarily moved `yt-dlp.exe`/`ffmpeg.exe` out of the repo folder and
+  ran `pytest` under a hard `timeout` — confirmed it hung on literally the
+  first test with exit code 124, matching the CI symptom precisely. Fixed
+  by stubbing `check_dependencies` to a no-op via `monkeypatch` in the
+  `make_window` fixture (`tests/conftest.py`) — these tests only exercise
+  formats-table/worker logic, never the startup dependency flow, so this
+  is the correct fix, not a workaround. Re-verified the same way (binaries
+  moved out, hard timeout): 14/14 pass in 0.43s. Cancelled the hung
+  workflow run via `gh run cancel` before it burned more CI minutes.
+  **Lesson:** a test fixture that happens to pass locally because of
+  incidental local state (binaries already present, in this case) needs to
+  be verified against the state CI will actually see, not just re-run
+  in-place — this is the same "verify in the target environment, not just
+  around it" mistake class as the yt-dlp-wrong-binary bug earlier today.
+
 ### 2026-09-04 (v2.2.0) — playlist support, cancel/retry, embedding, tests, Intel Mac CI, clipboard hint
 - **feat: playlist support ("simple" mode).** New `PlaylistProbeWorker` in
   `workers.py` runs `yt-dlp <url> --flat-playlist --no-playlist --dump-json
