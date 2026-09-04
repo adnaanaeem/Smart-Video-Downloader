@@ -1,0 +1,16 @@
+{
+  "id": "test2",
+  "title": "Test Multi-Resolution Multi-Language Video",
+  "webpage_url": "https://example.com/test2",
+  "thumbnail": null,
+  "description": "",
+  "formats": [
+    {"format_id": "v1080", "ext": "mp4", "vcodec": "avc1.640028", "acodec": "none", "height": 1080, "filesize_approx": 50000000},
+    {"format_id": "v720", "ext": "mp4", "vcodec": "avc1.4d401f", "acodec": "none", "height": 720, "filesize_approx": 25000000},
+    {"format_id": "v360", "ext": "mp4", "vcodec": "avc1.42001e", "acodec": "none", "height": 360, "filesize_approx": 8000000},
+    {"format_id": "a-en", "ext": "m4a", "vcodec": "none", "acodec": "mp4a.40.2", "abr": 128, "language": "en", "language_name": "English"},
+    {"format_id": "a-fr", "ext": "m4a", "vcodec": "none", "acodec": "mp4a.40.2", "abr": 128, "language": "fr", "language_name": "French"},
+    {"format_id": "a-es", "ext": "m4a", "vcodec": "none", "acodec": "mp4a.40.2", "abr": 128, "language": "es", "language_name": "Spanish"},
+    {"format_id": "merged1", "ext": "mp4", "vcodec": "avc1.42001e", "acodec": "mp4a.40.2", "height": 360, "filesize_approx": 9000000}
+  ]
+}

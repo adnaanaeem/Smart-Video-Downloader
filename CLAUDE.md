@@ -78,7 +78,9 @@ importing `PyQt6` since the v2.0 migration, and was missing `requests`/
 | `localization.py` | `STRINGS` dict — every user-facing string. Add new UI text here, not inline, to keep the app localization-ready. |
 | `config.json` | Runtime example/leftover of the settings file shape (actual settings persist to `%LocalAppData%/.../settings.json` via `get_settings_path()` in `main.py`, not this file — this one looks like a stray dev artifact). |
 | `setup_script.iss` | Inno Setup installer script (Windows). |
-| `.github/workflows/release.yml` | GitHub Actions: builds Windows + macOS installers and publishes them to a GitHub Release on tag push. |
+| `.github/workflows/release.yml` | GitHub Actions: builds Windows + macOS (arm64 + Intel) installers and publishes them to a GitHub Release on tag push. |
+| `.github/workflows/test.yml` | GitHub Actions: runs `tests/` on every push/PR to `main`. |
+| `tests/` | Pytest suite — `conftest.py` (headless `QApplication` fixture + fixture loader), `fixtures/*.json` (hand-built `--dump-json`-shaped format lists), `test_formats_table.py` (formats-table population/filter regressions), `test_workers.py` (pure-logic checks: bin paths, `parse_flat_playlist_output`). No subprocess/network calls in any test. Run with `python -m pytest tests/ -v`. |
 | `icon.ico` / `icon.png` | App icons (window icon + header logo). `icon.icns` (macOS) is generated at CI build time, not committed. |
 | `yt-dlp` / `ffmpeg` (`.exe` on Windows) | Bundled binaries, gitignored — auto-downloaded by the app if missing or corrupted, platform-appropriate URL picked in `workers.py` (`YTDlpWorker`, `FFmpegDownloadWorker`). |
 
@@ -150,6 +152,107 @@ the two). Saved on every change and on `closeEvent`.
 ## Changelog (bug fixes & features — newest first)
 
 Keep entries short: version/date, what changed, why, where.
+
+### 2026-09-04 (v2.2.0) — playlist support, cancel/retry, embedding, tests, Intel Mac CI, clipboard hint
+- **feat: playlist support ("simple" mode).** New `PlaylistProbeWorker` in
+  `workers.py` runs `yt-dlp <url> --flat-playlist --no-playlist --dump-json
+  --no-warnings` — cheap (no per-video format data) and, critically,
+  `--no-playlist` is combined with `--flat-playlist` deliberately: verified
+  directly via the yt-dlp CLI that a URL carrying both a video id and a list
+  id (e.g. `watch?v=X&list=Y`, extremely common when a video is opened from
+  inside a playlist) needs `--no-playlist` to still isolate just that one
+  video even in flat mode — without it, `--flat-playlist` alone enumerates
+  the *entire* playlist for that same URL, which would have silently broken
+  single-video fetches for anyone who followed a video from a playlist. A
+  pure playlist URL (no isolatable single video) still gets fully enumerated
+  regardless. `main.py` `_on_fetch_clicked` now probes first: exactly 1
+  entry → falls through to the existing single-video `FetchWorker` flow
+  completely unchanged; >1 entries → new `_create_playlist_section` panel
+  (checkboxes + a single quality-target dropdown: Best/1080p/720p/480p/Audio
+  MP3 + Select All/Deselect All + Download Selected). Each selected video is
+  translated into a plain yt-dlp format-selector string (e.g.
+  `bestvideo[height<=1080]+bestaudio/best[height<=1080]`) and queued through
+  the *same* download-queue machinery as single-video downloads — no
+  separate code path, so cancel/retry (below) works for playlist items too.
+- **feat: cancel + retry on queue items.** `DownloadWorker`/
+  `Mp3DownloadWorker` now expose a `cancel()` method (`self.process.terminate()`)
+  and a `cancelled` flag so a cancelled download reports a distinct
+  `"Cancelled"` result rather than a generic failure. `DownloadItem` gained
+  an action button (Cancel while running → Retry after failure/cancel).
+  Retrying re-invokes the same worker with the same save path, so it
+  resumes from the partial file via yt-dlp's default `--continue` behavior
+  rather than restarting — this is the practical equivalent of "pause",
+  since yt-dlp's streaming model has no clean way to literally pause an
+  in-flight HTTP transfer without killing the process.
+  **Fixed the original bug this was requested for:** a failed download used
+  to leave its formats-table row's Download button stuck on "Queued"
+  forever (`_on_download_finished` never touched it). Now tracked via a new
+  `self.download_source_buttons` dict and re-enabled on failure.
+  **Found and fixed a real crash while building this, twice:**
+  1. `_launch_download`'s `QThread` was a local variable with no persistent
+     Python reference (`thread = QThread()`, never stored on `self`) — PyQt
+     can garbage-collect a `QThread` wrapper while the underlying C++ thread
+     is still executing, which crashed the process with **zero Python
+     traceback** on literally the first real download. Caught via a direct
+     scripted repro (`_queue_download` → immediate silent exit code 127) with
+     incremental flushed print statements to isolate exactly which line it
+     died on. Fixed by keeping every launched thread alive in `self.active_threads`.
+  2. Even after that fix, retrying a cancelled download under the same
+     `unique_id` *also* crashed intermittently: `_on_download_finished`
+     (which flips the UI to "cancelled"/retryable) runs on an earlier
+     event-loop pass than the `QThread`'s own `finished` signal (which
+     actually stops the thread) — so a dict keyed by `unique_id` could have
+     its entry overwritten by the *new* thread on retry while the *old*
+     thread hadn't confirmed it was done yet, dropping the last reference
+     to a QThread that might still be alive. Fixed by using a list that
+     only removes a thread once *that thread's own* `finished` signal
+     fires, instead of a dict keyed by something that gets reused.
+     Both fixes verified via a direct scripted queue→cancel→retry cycle
+     (not just manual GUI clicking) before trusting them, then re-verified
+     live through the actual GUI end-to-end (real 232MB 4K download,
+     Cancel mid-transfer, Retry, completed — file confirmed on disk).
+- **feat: subtitle + thumbnail/metadata embedding (opt-in, default off).**
+  Two new checkboxes next to the Quality/Format/Language filter row.
+  `DownloadWorker`/`Mp3DownloadWorker` gained `embed_subs`/`embed_metadata`
+  params that extend the yt-dlp command with `--write-subs --sub-langs
+  "en.*,und" --embed-subs` and/or `--embed-thumbnail --embed-metadata`
+  (ffmpeg-dependent, already a hard requirement of this app). MP3 downloads
+  get subtitles written as a sidecar file only (embedding a subtitle stream
+  into an MP3 container isn't meaningful), not `--embed-subs`.
+- **feat: clipboard "Paste copied link?" hint.** `SmartVideoDownloader`
+  overrides `changeEvent` and checks the clipboard on `ActivationChange`
+  (i.e. when the window becomes active again — no background polling/timer).
+  If it holds a URL that differs from the current input and from the last
+  offered/dismissed value, shows a small dismissible label above the URL
+  box; clicking it fills the field (never auto-fetches); typing manually
+  also dismisses it. Verified live by setting the clipboard externally and
+  minimizing/restoring the window to trigger the activation event.
+- **feat: automated test suite** (new `tests/` dir + `.github/workflows/test.yml`,
+  running on every push/PR to `main`, separate from the tag-triggered release
+  pipeline). Targets the exact class of bug that has repeatedly shipped in
+  this file's own history (three real bugs in the formats-table/pairing
+  logic across one earlier session): hand-built fixture JSON files
+  (single format, multi-resolution × multi-language, audio tracks with
+  `"abr": null`) run through the real `_populate_formats_table`/
+  `_add_format_row` code via a headless (`QT_QPA_PLATFORM=offscreen`)
+  `QApplication`, plus pure-logic tests for `get_bin_dir`/path resolution
+  and the new `parse_flat_playlist_output` helper. No subprocess or network
+  calls in any test. 14/14 passing.
+- **feat: Intel Mac CI build.** Added `build-macos-intel` (`macos-13`) to
+  `release.yml`, mirroring the existing Apple Silicon job, producing
+  `SmartVideoDownloader-macOS-x86_64.dmg`. `publish-release` now depends on
+  and attaches all three installers. A single `universal2` build could
+  replace both mac jobs (PyQt6 does publish universal2 wheels), but
+  verifying that actually works needs real Mac hardware to debug if it
+  doesn't — going with two separate, predictable per-arch builds instead,
+  same reasoning as the original arm64-only decision.
+- **chore:** `README.md` updated (playlist/cancel-retry/embedding/clipboard
+  features listed, second macOS Intel download button + install note);
+  `.gitignore` gained `.pytest_cache/`.
+- All of the above was implemented and verified (pytest + live GUI
+  end-to-end for every feature) *before* being committed — per an explicit
+  checkpoint agreed with the user, the version bump/commit/tag/push only
+  happened after they confirmed v2.2.0 and gave the go-ahead.
 
 ### 2026-09-04 (v2.1.2) — Language filter + genuine Windows/macOS cross-platform support + release CI
 - **feat:** Added a **Language** filter to the formats table, alongside the

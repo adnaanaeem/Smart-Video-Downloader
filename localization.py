@@ -21,6 +21,23 @@ STRINGS = {
     "COMPLETED_COUNTER": "{completed} / {total} completed",
     "NO_FORMATS_MATCH": "No formats match selection.",
     "SHOW_MORE_BUTTON": "Show More...",
+    "EMBED_SUBS_LABEL": "Embed Subtitles",
+    "EMBED_METADATA_LABEL": "Embed Thumbnail && Metadata",
+    "CLIPBOARD_HINT_TEXT": "📋 Paste copied link?",
+
+    # --- Playlist ---
+    "PLAYLIST_PANEL_TITLE": "Playlist Detected",
+    "PLAYLIST_ITEM_COUNT": "{count} videos found — select which ones to download.",
+    "PLAYLIST_SELECT_ALL": "Select All",
+    "PLAYLIST_DESELECT_ALL": "Deselect All",
+    "PLAYLIST_QUALITY_LABEL": "Quality:",
+    "PLAYLIST_QUALITY_BEST": "Best Quality",
+    "PLAYLIST_QUALITY_1080P": "1080p",
+    "PLAYLIST_QUALITY_720P": "720p",
+    "PLAYLIST_QUALITY_480P": "480p",
+    "PLAYLIST_QUALITY_AUDIO": "Audio Only (MP3)",
+    "PLAYLIST_DOWNLOAD_SELECTED_BUTTON": "Download Selected",
+    "PLAYLIST_ERROR_NONE_SELECTED": "Select at least one video first.",
 
     # --- Table Content ---
     "TABLE_QUALITY_AUDIO": "Audio",
@@ -113,6 +130,9 @@ STRINGS = {
     "QUEUED_STATUS": "Queued",
     "COMPLETED_STATUS": "Completed",
     "FAILED_STATUS": "Failed",
+    "CANCELLED_STATUS": "Cancelled",
+    "CANCEL_BUTTON": "Cancel",
+    "RETRY_BUTTON": "Retry",
     "ERROR_FETCH_PRIVATE": "Could not fetch video info (it may be private).",
     "ERROR_FETCH_GENERIC": "Could not fetch video info.",
     "ERROR_EMPTY_URL": "URL field cannot be empty.",

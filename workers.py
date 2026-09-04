@@ -104,9 +104,11 @@ class DeveloperDialog(QDialog):
 
 class DownloadItem(QWidget):
     def __init__(self, title, format_details, parent=None):
-        super().__init__(parent); self.setFixedHeight(60); main_layout = QVBoxLayout(self); main_layout.setContentsMargins(10, 5, 10, 5); main_layout.setSpacing(5)
+        super().__init__(parent); self.setFixedHeight(60); self.state = "running"; main_layout = QVBoxLayout(self); main_layout.setContentsMargins(10, 5, 10, 5); main_layout.setSpacing(5)
         top_layout = QHBoxLayout(); self.title_label = QLabel(f"{title} - {format_details}"); self.title_label.setObjectName("queueItemTitle"); self.percentage_label = QLabel(STRINGS["WAITING_STATUS"]); self.percentage_label.setObjectName("queueItemPercent")
-        top_layout.addWidget(self.title_label); top_layout.addStretch(); top_layout.addWidget(self.percentage_label); self.progress_bar = QProgressBar(); self.progress_bar.setTextVisible(False); self.progress_bar.setFixedHeight(8); self.progress_bar.setValue(0)
+        self.action_btn = QPushButton(STRINGS["CANCEL_BUTTON"]); self.action_btn.setObjectName("queueItemActionButton"); self.action_btn.setFixedSize(70, 24)
+        top_layout.addWidget(self.title_label); top_layout.addStretch(); top_layout.addWidget(self.percentage_label); top_layout.addSpacing(8); top_layout.addWidget(self.action_btn)
+        self.progress_bar = QProgressBar(); self.progress_bar.setTextVisible(False); self.progress_bar.setFixedHeight(8); self.progress_bar.setValue(0)
         main_layout.addLayout(top_layout); main_layout.addWidget(self.progress_bar); self.setLayout(main_layout)
 
 # --- Worker Signals & Classes ---
@@ -241,6 +243,35 @@ class FetchWorker(QObject):
             else: self.signals.finished.emit(False, (result.stderr or "") + (result.stdout or "") or STRINGS["ERROR_FETCH_GENERIC"])
         except Exception as e: self.signals.finished.emit(False, str(e))
 
+def parse_flat_playlist_output(stdout):
+    """Parse yt-dlp --flat-playlist --dump-json output (one JSON object per line) into a list of entries. Pure/testable - no subprocess involved."""
+    entries = []
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line: continue
+        try: entries.append(json.loads(line))
+        except json.JSONDecodeError: continue
+    return entries
+
+class PlaylistProbeWorker(QObject):
+    """Cheap playlist enumeration: no per-video format data, just id/title/url per entry.
+    --no-playlist is combined with --flat-playlist deliberately: for a URL that carries both
+    a video id and a list id (e.g. "watch?v=X&list=Y", extremely common when a video is opened
+    from inside a playlist), --no-playlist makes yt-dlp isolate just that one video - matching
+    FetchWorker's existing single-video behavior exactly - while a URL with no isolatable single
+    video (a genuine playlist link) still gets fully enumerated regardless. Verified directly via
+    the yt-dlp CLI on both URL shapes before relying on this."""
+    def __init__(self, url, cookies_path=None):
+        super().__init__(); self.signals = WorkerSignals(); self.url = url; self.cookies_path = cookies_path
+    def run(self):
+        try:
+            cmd = [YTDLP_PATH, self.url, "--flat-playlist", "--no-playlist", "--dump-json", "--no-warnings"]
+            if self.cookies_path: cmd.extend(["--cookies", self.cookies_path])
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', creationflags=CREATE_NO_WINDOW)
+            if result.returncode == 0: self.signals.finished.emit(True, parse_flat_playlist_output(result.stdout))
+            else: self.signals.finished.emit(False, (result.stderr or "") + (result.stdout or "") or STRINGS["ERROR_FETCH_GENERIC"])
+        except Exception as e: self.signals.finished.emit(False, str(e))
+
 class ThumbnailWorker(QObject):
     def __init__(self, url): super().__init__(); self.signals = WorkerSignals(); self.url = url
     def run(self):
@@ -250,56 +281,71 @@ class ThumbnailWorker(QObject):
         except Exception: pass
 
 class DownloadWorker(QObject):
-    def __init__(self, url, video_id, audio_id, save_path, unique_id, cookies_path=None):
+    def __init__(self, url, format_selection, save_path, unique_id, cookies_path=None, embed_subs=False, embed_metadata=False):
         super().__init__()
         self.signals = WorkerSignals()
         self.url = url
-        self.video_id = video_id
-        self.audio_id = audio_id
+        self.format_selection = format_selection
         self.save_path = save_path
         self.unique_id = unique_id
         self.cookies_path = cookies_path
+        self.embed_subs = embed_subs
+        self.embed_metadata = embed_metadata
+        self.process = None
+        self.cancelled = False
+
+    def cancel(self):
+        self.cancelled = True
+        if self.process: self.process.terminate()
 
     def run(self):
         try:
-            if self.audio_id:
-                format_selection = f"{self.video_id}+{self.audio_id}"
-            else:
-                format_selection = self.video_id
-
-            cmd = [YTDLP_PATH, self.url, "-f", format_selection, "-o", self.save_path, "--progress", "--no-warnings", "--merge-output-format", "mp4"]
+            cmd = [YTDLP_PATH, self.url, "-f", self.format_selection, "-o", self.save_path, "--progress", "--no-warnings", "--merge-output-format", "mp4"]
             if self.cookies_path: cmd.extend(["--cookies", self.cookies_path])
-            
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', creationflags=CREATE_NO_WINDOW)
+            if self.embed_subs: cmd.extend(["--write-subs", "--sub-langs", "en.*,und", "--embed-subs"])
+            if self.embed_metadata: cmd.extend(["--embed-thumbnail", "--embed-metadata"])
+
+            self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', creationflags=CREATE_NO_WINDOW)
             output_lines = []; progress_regex = re.compile(r"\[download\]\s+(?P<percent>[\d\.]+)%")
-            for line in iter(process.stdout.readline, ''):
+            for line in iter(self.process.stdout.readline, ''):
                 stripped_line = line.strip(); output_lines.append(stripped_line); self.signals.log.emit(stripped_line)
                 match = progress_regex.search(line)
                 if match: self.signals.progress.emit(self.unique_id, int(float(match.group("percent"))))
-            
-            process.wait()
-            
-            if process.returncode == 0: self.signals.download_finished.emit(self.unique_id, True, STRINGS["SUCCESS_DOWNLOAD_COMPLETED"])
+
+            self.process.wait()
+
+            if self.cancelled: self.signals.download_finished.emit(self.unique_id, False, STRINGS["CANCELLED_STATUS"])
+            elif self.process.returncode == 0: self.signals.download_finished.emit(self.unique_id, True, STRINGS["SUCCESS_DOWNLOAD_COMPLETED"])
             else: self.signals.download_finished.emit(self.unique_id, False, "\n".join(output_lines))
         except Exception as e: self.signals.download_finished.emit(self.unique_id, False, str(e))
 
 class Mp3DownloadWorker(QObject):
-    def __init__(self, url, save_path, unique_id, cookies_path=None):
+    def __init__(self, url, save_path, unique_id, cookies_path=None, embed_subs=False, embed_metadata=False):
         super().__init__(); self.signals = WorkerSignals(); self.url = url; self.save_path = save_path
         self.unique_id = unique_id; self.cookies_path = cookies_path
+        self.embed_subs = embed_subs; self.embed_metadata = embed_metadata
+        self.process = None; self.cancelled = False
+
+    def cancel(self):
+        self.cancelled = True
+        if self.process: self.process.terminate()
+
     def run(self):
         try:
             cmd = [YTDLP_PATH, self.url, "-x", "--audio-format", "mp3", "--audio-quality", "0", "-o", self.save_path, "--progress", "--no-warnings"]
             if self.cookies_path: cmd.extend(["--cookies", self.cookies_path])
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', creationflags=CREATE_NO_WINDOW)
+            if self.embed_subs: cmd.extend(["--write-subs", "--sub-langs", "en.*,und"])
+            if self.embed_metadata: cmd.extend(["--embed-thumbnail", "--embed-metadata"])
+            self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', creationflags=CREATE_NO_WINDOW)
             output_lines = []; progress_regex = re.compile(r"\[download\]\s+Destination:\s.*\s+\(frag\s\d+/\d+\)\n\[download\]\s+(?P<percent>[\d\.]+)%")
             dest_regex = re.compile(r"\[ExtractAudio\] Destination: (.*)")
-            for line in iter(process.stdout.readline, ''):
+            for line in iter(self.process.stdout.readline, ''):
                 stripped_line = line.strip(); output_lines.append(stripped_line); self.signals.log.emit(stripped_line)
                 match = progress_regex.search(line) or dest_regex.search(line)
                 if match and "percent" in match.groupdict(): self.signals.progress.emit(self.unique_id, int(float(match.group("percent"))))
                 elif "Destination:" in line: self.signals.progress.emit(self.unique_id, 100) # Final step
-            process.wait()
-            if process.returncode == 0: self.signals.download_finished.emit(self.unique_id, True, STRINGS["SUCCESS_MP3_CONVERTED"])
+            self.process.wait()
+            if self.cancelled: self.signals.download_finished.emit(self.unique_id, False, STRINGS["CANCELLED_STATUS"])
+            elif self.process.returncode == 0: self.signals.download_finished.emit(self.unique_id, True, STRINGS["SUCCESS_MP3_CONVERTED"])
             else: self.signals.download_finished.emit(self.unique_id, False, "\n".join(output_lines))
         except Exception as e: self.signals.download_finished.emit(self.unique_id, False, str(e))

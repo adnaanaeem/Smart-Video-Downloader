@@ -9,10 +9,10 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QFrame, QTableWidget, QTableWidgetItem,
-    QComboBox, QHeaderView, QScrollArea, QFileDialog, QGraphicsDropShadowEffect, QMenu
+    QComboBox, QCheckBox, QHeaderView, QScrollArea, QFileDialog, QGraphicsDropShadowEffect, QMenu
 )
 from PyQt6.QtGui import QColor, QAction, QPixmap, QIcon
-from PyQt6.QtCore import QThread, Qt, QStandardPaths
+from PyQt6.QtCore import QThread, Qt, QStandardPaths, QEvent
 
 # --- Local Imports ---
 import config
@@ -21,7 +21,8 @@ from localization import STRINGS
 from styles import generate_stylesheet
 from workers import (
     Spinner, ModalDialog, DeveloperDialog, DownloadItem,
-    VersionCheckWorker, FFmpegHealthCheckWorker, AppUpdateCheckWorker, YTDlpWorker, FFmpegDownloadWorker, FetchWorker, ThumbnailWorker, DownloadWorker, Mp3DownloadWorker,
+    VersionCheckWorker, FFmpegHealthCheckWorker, AppUpdateCheckWorker, YTDlpWorker, FFmpegDownloadWorker,
+    FetchWorker, PlaylistProbeWorker, ThumbnailWorker, DownloadWorker, Mp3DownloadWorker,
     YTDLP_PATH, FFMPEG_PATH
 )
 
@@ -45,6 +46,9 @@ class SmartVideoDownloader(QMainWindow):
         self.dependency_dialog = None; self.save_path = ""; self.cookies_path = None
         self.ffmpeg_found = os.path.exists(FFMPEG_PATH); self.ytdlp_found = os.path.exists(YTDLP_PATH)
         self.app_update_thread = None; self.version_thread = None; self.ffmpeg_health_thread = None
+        self.download_source_buttons = {}; self.download_requests = {}; self.active_workers = {}; self.active_threads = []
+        self.playlist_entries = []; self.playlist_checkboxes = []
+        self.last_clipboard_hint_text = None
         self._setup_ui(); 
         self._load_settings();
         self.is_updating_ytdlp = False
@@ -59,9 +63,10 @@ class SmartVideoDownloader(QMainWindow):
         self.content_panel = QFrame(); self.content_panel.setObjectName("contentPanel")
         self.panel_layout = QVBoxLayout(self.content_panel); self.panel_layout.setContentsMargins(25, 25, 25, 25); self.panel_layout.setSpacing(20); self.panel_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._create_header(); self._create_url_section(); self._create_supported_sites_section(); self._create_error_section(); self._create_video_info_section()
+        self._create_playlist_section()
         self._create_save_path_section(); self._create_cookies_section(); self._create_formats_section(); self._create_downloads_queue(); self.panel_layout.addStretch()
         main_scroll_area.setWidget(self.content_panel); self.content_layout.addWidget(main_scroll_area); self.main_layout.addWidget(self.background_frame)
-        self.error_panel.hide(); self.video_info_panel.hide(); self.save_path_panel.hide(); self.cookies_panel.hide(); self.formats_panel.hide(); self.downloads_queue_panel.hide()
+        self.error_panel.hide(); self.video_info_panel.hide(); self.playlist_panel.hide(); self.save_path_panel.hide(); self.cookies_panel.hide(); self.formats_panel.hide(); self.downloads_queue_panel.hide()
 
     def _create_header(self):
         header = QWidget(); header_layout = QHBoxLayout(header); header_layout.setContentsMargins(0, 0, 0, 15); header_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
@@ -85,9 +90,34 @@ class SmartVideoDownloader(QMainWindow):
         url_label = QLabel(STRINGS["URL_LABEL"]); url_label.setObjectName("urlLabel")
         url_input_container = QFrame(); url_input_container.setObjectName("urlInputContainer"); url_input_layout = QHBoxLayout(url_input_container); url_input_layout.setContentsMargins(10, 2, 2, 2); url_input_layout.setSpacing(10)
         link_icon = QLabel("🔗"); link_icon.setObjectName("linkIcon"); self.url_input = QLineEdit(); self.url_input.setPlaceholderText(STRINGS["URL_PLACEHOLDER"]); self.url_input.setFixedHeight(40)
+        self.url_input.textEdited.connect(self._on_url_input_edited)
         self.fetch_button = QPushButton(STRINGS["FETCH_BUTTON"]); self.fetch_button.setObjectName("fetchButton"); self.fetch_button.setFixedSize(100, 40); self.fetch_button.clicked.connect(self._on_fetch_clicked); self.spinner = Spinner(); self.spinner.hide()
         url_input_layout.addWidget(link_icon); url_input_layout.addWidget(self.url_input); url_input_layout.addWidget(self.spinner); url_input_layout.addWidget(self.fetch_button)
-        self.panel_layout.addWidget(url_label); self.panel_layout.addWidget(url_input_container)
+        self.clipboard_hint = QPushButton(STRINGS["CLIPBOARD_HINT_TEXT"]); self.clipboard_hint.setObjectName("clipboardHintButton"); self.clipboard_hint.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.clipboard_hint.clicked.connect(self._on_clipboard_hint_clicked); self.clipboard_hint.hide()
+        self.panel_layout.addWidget(url_label); self.panel_layout.addWidget(url_input_container); self.panel_layout.addWidget(self.clipboard_hint)
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
+            self._check_clipboard_for_link()
+
+    def _check_clipboard_for_link(self):
+        text = QApplication.clipboard().text().strip()
+        if not text or not re.match(r'^https?://\S+$', text) or text == self.url_input.text().strip() or text == self.last_clipboard_hint_text:
+            self.clipboard_hint.hide(); return
+        self._pending_clipboard_link = text
+        self.clipboard_hint.show()
+
+    def _on_clipboard_hint_clicked(self):
+        self.url_input.setText(self._pending_clipboard_link)
+        self.last_clipboard_hint_text = self._pending_clipboard_link
+        self.clipboard_hint.hide()
+
+    def _on_url_input_edited(self):
+        if self.clipboard_hint.isVisible():
+            self.last_clipboard_hint_text = getattr(self, '_pending_clipboard_link', None)
+            self.clipboard_hint.hide()
 
     def _create_supported_sites_section(self):
         sites_label = QLabel(STRINGS["SUPPORTED_SITES_LABEL"]); sites_label.setObjectName("urlLabel"); sites_widget = QWidget(); sites_layout = QHBoxLayout(sites_widget)
@@ -119,6 +149,70 @@ class SmartVideoDownloader(QMainWindow):
         desc_layout.addWidget(self.video_description, 1); desc_layout.addWidget(self.show_more_btn, 0, Qt.AlignmentFlag.AlignBottom)
         text_layout.addWidget(self.video_title); text_layout.addLayout(desc_layout); info_layout.addWidget(self.thumbnail_label); info_layout.addWidget(text_widget, 1); self.panel_layout.addWidget(self.video_info_panel)
 
+    def _create_playlist_section(self):
+        self.playlist_panel = QWidget(); layout = QVBoxLayout(self.playlist_panel); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(10)
+        header_row = QHBoxLayout(); title_label = QLabel(STRINGS["PLAYLIST_PANEL_TITLE"]); title_label.setObjectName("videoTitle")
+        self.playlist_count_label = QLabel(""); self.playlist_count_label.setObjectName("savePathLabel")
+        header_row.addWidget(title_label); header_row.addStretch(); header_row.addWidget(self.playlist_count_label)
+
+        select_row = QHBoxLayout()
+        select_all_btn = QPushButton(STRINGS["PLAYLIST_SELECT_ALL"]); select_all_btn.setObjectName("browseButton"); select_all_btn.clicked.connect(lambda: self._set_all_playlist_checkboxes(True))
+        deselect_all_btn = QPushButton(STRINGS["PLAYLIST_DESELECT_ALL"]); deselect_all_btn.setObjectName("browseButton"); deselect_all_btn.clicked.connect(lambda: self._set_all_playlist_checkboxes(False))
+        select_row.addWidget(select_all_btn); select_row.addWidget(deselect_all_btn); select_row.addStretch()
+
+        self.playlist_scroll = QScrollArea(); self.playlist_scroll.setWidgetResizable(True); self.playlist_scroll.setMaximumHeight(240)
+        self.playlist_list_widget = QWidget(); self.playlist_list_layout = QVBoxLayout(self.playlist_list_widget); self.playlist_list_layout.setAlignment(Qt.AlignmentFlag.AlignTop); self.playlist_list_layout.setSpacing(4)
+        self.playlist_scroll.setWidget(self.playlist_list_widget)
+
+        footer_row = QHBoxLayout()
+        quality_label = QLabel(STRINGS["PLAYLIST_QUALITY_LABEL"]); quality_label.setObjectName("filterDropdownLabel")
+        self.playlist_quality_combo = QComboBox()
+        self.playlist_quality_combo.addItems([STRINGS["PLAYLIST_QUALITY_BEST"], STRINGS["PLAYLIST_QUALITY_1080P"], STRINGS["PLAYLIST_QUALITY_720P"], STRINGS["PLAYLIST_QUALITY_480P"], STRINGS["PLAYLIST_QUALITY_AUDIO"]])
+        self.playlist_download_btn = QPushButton(STRINGS["PLAYLIST_DOWNLOAD_SELECTED_BUTTON"]); self.playlist_download_btn.setObjectName("fetchButton"); self.playlist_download_btn.clicked.connect(self._on_playlist_download_clicked)
+        footer_row.addWidget(quality_label); footer_row.addWidget(self.playlist_quality_combo); footer_row.addStretch(); footer_row.addWidget(self.playlist_download_btn)
+
+        layout.addLayout(header_row); layout.addLayout(select_row); layout.addWidget(self.playlist_scroll); layout.addLayout(footer_row)
+        self.panel_layout.addWidget(self.playlist_panel)
+
+    def _populate_playlist_section(self, entries):
+        for cb in self.playlist_checkboxes: cb.setParent(None)
+        self.playlist_checkboxes = []; self.playlist_entries = entries
+        for entry in entries:
+            title = entry.get('title') or entry.get('id') or entry.get('url') or ''
+            cb = QCheckBox(title); cb.setChecked(True)
+            self.playlist_list_layout.addWidget(cb); self.playlist_checkboxes.append(cb)
+        self.playlist_count_label.setText(STRINGS["PLAYLIST_ITEM_COUNT"].format(count=len(entries)))
+
+    def _set_all_playlist_checkboxes(self, checked):
+        for cb in self.playlist_checkboxes: cb.setChecked(checked)
+
+    def _on_playlist_download_clicked(self):
+        selected = [e for e, cb in zip(self.playlist_entries, self.playlist_checkboxes) if cb.isChecked()]
+        if not selected: self._show_error(STRINGS["PLAYLIST_ERROR_NONE_SELECTED"]); return
+
+        quality_text = self.playlist_quality_combo.currentText()
+        is_mp3 = quality_text == STRINGS["PLAYLIST_QUALITY_AUDIO"]
+        height_map = {STRINGS["PLAYLIST_QUALITY_1080P"]: 1080, STRINGS["PLAYLIST_QUALITY_720P"]: 720, STRINGS["PLAYLIST_QUALITY_480P"]: 480}
+        max_height = height_map.get(quality_text)
+        embed_subs = self.embed_subs_checkbox.isChecked(); embed_metadata = self.embed_metadata_checkbox.isChecked()
+
+        for entry in selected:
+            video_url = entry.get('url') or entry.get('webpage_url') or entry.get('id')
+            title = entry.get('title') or entry.get('id') or video_url
+            safe_title = re.sub(r'[\\/*?:"<>|]', "", title)
+            unique_id = f"playlist-{entry.get('id', video_url)}-{quality_text}"
+            if unique_id in self.download_items: continue  # already queued from a previous click
+
+            if is_mp3:
+                full_path = os.path.join(self.save_path, f"{safe_title}.mp3")
+                request = {'kind': 'mp3', 'url': video_url, 'save_path': full_path, 'embed_subs': embed_subs, 'embed_metadata': embed_metadata}
+                self._queue_download(unique_id, title, STRINGS["MP3_FORMAT_DETAILS"], request)
+            else:
+                format_selection = f"bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]" if max_height else "bestvideo+bestaudio/best"
+                full_path = os.path.join(self.save_path, f"{safe_title}.mp4")
+                request = {'kind': 'video', 'url': video_url, 'format_selection': format_selection, 'save_path': full_path, 'embed_subs': embed_subs, 'embed_metadata': embed_metadata}
+                self._queue_download(unique_id, title, quality_text, request)
+
     def _create_save_path_section(self):
         self.save_path_panel = QWidget(); layout = QVBoxLayout(self.save_path_panel); layout.setContentsMargins(0,0,0,0); layout.setSpacing(5)
         label = QLabel(STRINGS["SAVE_LOCATION_LABEL"]); label.setObjectName("savePathLabel")
@@ -146,10 +240,13 @@ class SmartVideoDownloader(QMainWindow):
         filter_layout.addWidget(filter_label); filter_layout.addStretch(); filter_layout.addWidget(quality_label); filter_layout.addWidget(self.quality_filter); filter_layout.addSpacing(10)
         filter_layout.addWidget(format_label); filter_layout.addWidget(self.format_filter); filter_layout.addSpacing(10)
         filter_layout.addWidget(language_label); filter_layout.addWidget(self.language_filter)
+        extras_bar = QWidget(); extras_layout = QHBoxLayout(extras_bar); extras_layout.setContentsMargins(0, 0, 0, 0)
+        self.embed_subs_checkbox = QCheckBox(STRINGS["EMBED_SUBS_LABEL"]); self.embed_metadata_checkbox = QCheckBox(STRINGS["EMBED_METADATA_LABEL"])
+        extras_layout.addWidget(self.embed_subs_checkbox); extras_layout.addSpacing(15); extras_layout.addWidget(self.embed_metadata_checkbox); extras_layout.addStretch()
         self.formats_table = QTableWidget(); self.formats_table.setColumnCount(5); self.formats_table.setHorizontalHeaderLabels(["Quality", "Format", "Size", "Note", "Action"]); header = self.formats_table.horizontalHeader(); header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.formats_table.verticalHeader().hide(); self.formats_table.setAlternatingRowColors(True); self.formats_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection); self.formats_table.setFocusPolicy(Qt.FocusPolicy.NoFocus); self.formats_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.empty_filter_label = QLabel(STRINGS["NO_FORMATS_MATCH"]); self.empty_filter_label.setAlignment(Qt.AlignmentFlag.AlignCenter); self.empty_filter_label.setObjectName("emptyFilterLabel"); self.empty_filter_label.hide()
-        formats_layout.addWidget(filter_bar); formats_layout.addWidget(self.formats_table); formats_layout.addWidget(self.empty_filter_label); self.panel_layout.addWidget(self.formats_panel)
+        formats_layout.addWidget(filter_bar); formats_layout.addWidget(extras_bar); formats_layout.addWidget(self.formats_table); formats_layout.addWidget(self.empty_filter_label); self.panel_layout.addWidget(self.formats_panel)
 
     def _create_downloads_queue(self):
         self.downloads_queue_panel = QFrame(); self.downloads_queue_panel.setObjectName("downloadsQueuePanel")
@@ -318,8 +415,23 @@ class SmartVideoDownloader(QMainWindow):
     def _on_fetch_clicked(self):
         url = self.url_input.text().strip();
         if not url: self._show_error(STRINGS["ERROR_EMPTY_URL"]); return
+        self.clipboard_hint.hide()
         self.fetch_button.hide(); self.spinner.show(); self.url_input.setDisabled(True)
-        self.error_panel.hide(); self.video_info_panel.hide(); self.formats_panel.hide(); self.save_path_panel.hide(); self.downloads_queue_panel.hide(); self.cookies_panel.hide()
+        self.error_panel.hide(); self.video_info_panel.hide(); self.playlist_panel.hide(); self.formats_panel.hide(); self.save_path_panel.hide(); self.downloads_queue_panel.hide(); self.cookies_panel.hide()
+        self.probe_thread = QThread(); self.probe_worker = PlaylistProbeWorker(url, self.cookies_path); self.probe_worker.moveToThread(self.probe_thread)
+        self.probe_thread.started.connect(self.probe_worker.run)
+        self.probe_worker.signals.finished.connect(lambda success, data: self._on_playlist_probed(success, data, url))
+        self.probe_worker.signals.finished.connect(self.probe_thread.quit); self.probe_worker.signals.finished.connect(self.probe_worker.deleteLater)
+        self.probe_thread.finished.connect(self.probe_thread.deleteLater); self.probe_thread.start()
+
+    def _on_playlist_probed(self, success, data, url):
+        if success and isinstance(data, list) and len(data) > 1:
+            self.spinner.hide(); self.fetch_button.show(); self.url_input.setDisabled(False)
+            self._populate_playlist_section(data)
+            self.playlist_panel.show(); self.save_path_panel.show(); self._update_cookies_ui()
+            return
+        # Not a playlist (single video, or the probe itself failed) - fall back to the
+        # normal single-video fetch, unchanged from before playlist support existed.
         self.fetch_thread = QThread(); self.fetch_worker = FetchWorker(url, self.cookies_path); self.fetch_worker.moveToThread(self.fetch_thread); self.fetch_thread.started.connect(self.fetch_worker.run)
         self.fetch_worker.signals.finished.connect(self._process_fetch_result); self.fetch_worker.signals.finished.connect(self.fetch_thread.quit); self.fetch_worker.signals.finished.connect(self.fetch_worker.deleteLater)
         self.fetch_thread.finished.connect(self.fetch_thread.deleteLater); self.fetch_thread.start()
@@ -455,22 +567,17 @@ class SmartVideoDownloader(QMainWindow):
 
     def _start_download_worker(self, row, video_id, audio_id, save_path):
         btn = self.formats_table.cellWidget(row, 4).findChild(QPushButton); btn.setText(STRINGS["QUEUED_STATUS"]); btn.setDisabled(True)
-        if not self.downloads_queue_panel.isVisible(): self.downloads_queue_panel.show()
-        self.downloads_total += 1; self._update_queue_counter()
-        
+
         quality = self.formats_table.item(row, 0).text(); note = self.formats_table.item(row, 3).text()
         format_details = f"{quality} ({note})"
-        
         unique_id = f"{self.fetched_data['id']}-{video_id}-{audio_id or ''}"
-        
-        item_widget = DownloadItem(self.fetched_data['title'], format_details); self.queue_list_layout.addWidget(item_widget); self.download_items[unique_id] = item_widget
-        
-        self.dl_thread = QThread(); self.dl_worker = DownloadWorker(self.fetched_data['webpage_url'], video_id, audio_id, save_path, unique_id, self.cookies_path)
-        self.dl_worker.moveToThread(self.dl_thread)
-        self.dl_thread.started.connect(self.dl_worker.run)
-        self.dl_worker.signals.progress.connect(self._update_download_progress); self.dl_worker.signals.download_finished.connect(self._on_download_finished)
-        self.dl_worker.signals.download_finished.connect(self.dl_thread.quit); self.dl_worker.signals.download_finished.connect(self.dl_worker.deleteLater)
-        self.dl_thread.finished.connect(self.dl_thread.deleteLater); self.dl_thread.start()
+        format_selection = f"{video_id}+{audio_id}" if audio_id else video_id
+
+        request = {
+            'kind': 'video', 'url': self.fetched_data['webpage_url'], 'format_selection': format_selection,
+            'save_path': save_path, 'embed_subs': self.embed_subs_checkbox.isChecked(), 'embed_metadata': self.embed_metadata_checkbox.isChecked(),
+        }
+        self._queue_download(unique_id, self.fetched_data['title'], format_details, request, source_button=btn)
 
     def _on_mp3_row_clicked(self, row):
         safe_title = re.sub(r'[\\/*?:"<>|]', "", self.fetched_data['title']); filename = f"{safe_title}.mp3"; full_path = os.path.join(self.save_path, filename); proceed = not os.path.exists(full_path)
@@ -480,30 +587,87 @@ class SmartVideoDownloader(QMainWindow):
         if proceed:
             btn = self.formats_table.cellWidget(row, 4).findChild(QPushButton); btn.setText(STRINGS["QUEUED_STATUS"]); btn.setDisabled(True)
             unique_id = f"{self.fetched_data['id']}-mp3"
-            if not self.downloads_queue_panel.isVisible(): self.downloads_queue_panel.show()
-            self.downloads_total += 1; self._update_queue_counter()
-            item_widget = DownloadItem(self.fetched_data['title'], STRINGS["MP3_FORMAT_DETAILS"]); self.queue_list_layout.addWidget(item_widget); self.download_items[unique_id] = item_widget
-            self.mp3_thread = QThread(); self.mp3_worker = Mp3DownloadWorker(self.fetched_data['webpage_url'], full_path, unique_id, self.cookies_path); self.mp3_worker.moveToThread(self.mp3_thread); self.mp3_thread.started.connect(self.mp3_worker.run)
-            self.mp3_worker.signals.progress.connect(self._update_download_progress); self.mp3_worker.signals.download_finished.connect(self._on_download_finished)
-            self.mp3_worker.signals.download_finished.connect(self.mp3_thread.quit); self.mp3_worker.signals.download_finished.connect(self.mp3_worker.deleteLater)
-            self.mp3_thread.finished.connect(self.mp3_thread.deleteLater); self.mp3_thread.start()
+            request = {
+                'kind': 'mp3', 'url': self.fetched_data['webpage_url'], 'save_path': full_path,
+                'embed_subs': self.embed_subs_checkbox.isChecked(), 'embed_metadata': self.embed_metadata_checkbox.isChecked(),
+            }
+            self._queue_download(unique_id, self.fetched_data['title'], STRINGS["MP3_FORMAT_DETAILS"], request, source_button=btn)
+
+    def _queue_download(self, unique_id, title, format_details, request, source_button=None):
+        """Creates the queue-list entry for a new download and launches it. Shared by single-video, MP3, and playlist downloads."""
+        if not self.downloads_queue_panel.isVisible(): self.downloads_queue_panel.show()
+        self.downloads_total += 1; self._update_queue_counter()
+        item_widget = DownloadItem(title, format_details); self.queue_list_layout.addWidget(item_widget); self.download_items[unique_id] = item_widget
+        item_widget.action_btn.clicked.connect(lambda _, uid=unique_id: self._on_queue_item_action_clicked(uid))
+        self.download_requests[unique_id] = request
+        if source_button: self.download_source_buttons[unique_id] = source_button
+        self._launch_download(unique_id, request)
+
+    def _launch_download(self, unique_id, request):
+        """Starts (or resumes, via yt-dlp's default --continue behavior) the worker for a queued request."""
+        thread = QThread()
+        if request['kind'] == 'mp3':
+            worker = Mp3DownloadWorker(request['url'], request['save_path'], unique_id, self.cookies_path, request.get('embed_subs', False), request.get('embed_metadata', False))
+        else:
+            worker = DownloadWorker(request['url'], request['format_selection'], request['save_path'], unique_id, self.cookies_path, request.get('embed_subs', False), request.get('embed_metadata', False))
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.signals.progress.connect(self._update_download_progress); worker.signals.download_finished.connect(self._on_download_finished)
+        worker.signals.download_finished.connect(thread.quit); worker.signals.download_finished.connect(worker.deleteLater)
+        # The thread must be kept alive via a persistent reference for as long as it runs - a
+        # local-only QThread can be garbage-collected by Python while the underlying C++ thread is
+        # still executing, crashing the process. Retrying under the same unique_id must NOT drop the
+        # previous thread's reference before ITS OWN 'finished' has fired (that happens on a later
+        # event-loop pass than _on_download_finished, so a same-key dict would race) - a list that
+        # only removes a thread once its own finished signal confirms it's done avoids that entirely.
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(lambda t=thread: self.active_threads.remove(t) if t in self.active_threads else None)
+        self.active_threads.append(thread); self.active_workers[unique_id] = worker; thread.start()
+
+    def _on_queue_item_action_clicked(self, unique_id):
+        item = self.download_items.get(unique_id)
+        if not item: return
+        if item.state == "running":
+            worker = self.active_workers.get(unique_id)
+            if worker: worker.cancel()
+        else:
+            request = self.download_requests.get(unique_id)
+            if not request: return
+            item.state = "running"; item.percentage_label.setText(STRINGS["WAITING_STATUS"]); item.progress_bar.setValue(0)
+            item.progress_bar.setProperty("status", ""); item.progress_bar.style().unpolish(item.progress_bar); item.progress_bar.style().polish(item.progress_bar)
+            item.action_btn.setText(STRINGS["CANCEL_BUTTON"])
+            self._launch_download(unique_id, request)
 
     def _update_download_progress(self, unique_id, percentage):
         if unique_id in self.download_items: item = self.download_items[unique_id]; item.progress_bar.setValue(percentage); item.percentage_label.setText(f"{percentage}%")
 
     def _on_download_finished(self, unique_id, success, message):
+        self.active_workers.pop(unique_id, None)
         if unique_id in self.download_items:
             item = self.download_items[unique_id]
-            if success: self.downloads_completed += 1; item.percentage_label.setText(STRINGS["COMPLETED_STATUS"]); item.progress_bar.setValue(100); item.progress_bar.setProperty("status", "completed")
+            if success:
+                item.state = "completed"
+                self.downloads_completed += 1; item.percentage_label.setText(STRINGS["COMPLETED_STATUS"]); item.progress_bar.setValue(100); item.progress_bar.setProperty("status", "completed")
+                item.action_btn.hide()
             else:
-                msg_lower = message.lower()
-                if any(keyword in msg_lower for keyword in ["private", "login", "members only", "subscribers", "sign in"]):
-                    self._show_error(STRINGS["ERROR_FETCH_PRIVATE"], is_private=True)
-                    item.title_label.setToolTip(STRINGS["PRIVATE_VIDEO_TOOLTIP"])
+                cancelled = (message == STRINGS["CANCELLED_STATUS"])
+                item.state = "cancelled" if cancelled else "failed"
+                if cancelled:
+                    item.percentage_label.setText(STRINGS["CANCELLED_STATUS"]); item.progress_bar.setProperty("status", "failed")
                 else:
-                    self._show_error(message)
-                    item.title_label.setToolTip(message)
-                item.percentage_label.setText(STRINGS["FAILED_STATUS"]); item.progress_bar.setProperty("status", "failed")
+                    msg_lower = message.lower()
+                    if any(keyword in msg_lower for keyword in ["private", "login", "members only", "subscribers", "sign in"]):
+                        self._show_error(STRINGS["ERROR_FETCH_PRIVATE"], is_private=True)
+                        item.title_label.setToolTip(STRINGS["PRIVATE_VIDEO_TOOLTIP"])
+                    else:
+                        self._show_error(message)
+                        item.title_label.setToolTip(message)
+                    item.percentage_label.setText(STRINGS["FAILED_STATUS"]); item.progress_bar.setProperty("status", "failed")
+                item.action_btn.setText(STRINGS["RETRY_BUTTON"]); item.action_btn.setEnabled(True)
+                btn = self.download_source_buttons.get(unique_id)
+                if btn:
+                    try: btn.setText(STRINGS["DOWNLOAD_BUTTON"]); btn.setDisabled(False)
+                    except RuntimeError: pass
             item.progress_bar.style().unpolish(item.progress_bar); item.progress_bar.style().polish(item.progress_bar)
         self._update_queue_counter()
         

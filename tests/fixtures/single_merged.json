@@ -1,0 +1,10 @@
+{
+  "id": "test1",
+  "title": "Test Single Format Video",
+  "webpage_url": "https://example.com/test1",
+  "thumbnail": null,
+  "description": "",
+  "formats": [
+    {"format_id": "18", "ext": "mp4", "vcodec": "avc1.42001E", "acodec": "mp4a.40.2", "height": 360, "filesize_approx": 5000000, "format_note": "360p"}
+  ]
+}

@@ -3,6 +3,7 @@
 [![Latest Release](https://img.shields.io/github/v/release/adnaanaeem/smart-video-downloader?style=for-the-badge&color=DC2626&label=Latest%20Release)](https://github.com/adnaanaeem/smart-video-downloader/releases/latest)
 [![Download for Windows](https://img.shields.io/badge/Download-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/adnaanaeem/smart-video-downloader/releases/latest/download/SmartVideoDownloaderSetup-Windows.exe)
 [![Download for macOS](https://img.shields.io/badge/Download-macOS%20(Apple%20Silicon)-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/adnaanaeem/smart-video-downloader/releases/latest/download/SmartVideoDownloader-macOS-arm64.dmg)
+[![Download for macOS Intel](https://img.shields.io/badge/Download-macOS%20(Intel)-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/adnaanaeem/smart-video-downloader/releases/latest/download/SmartVideoDownloader-macOS-x86_64.dmg)
 
 ![Main Application Window](https://raw.githubusercontent.com/adnaanaeem/smart-video-downloader/main/screenshots/download_queue.png)
 
@@ -12,7 +13,15 @@ A modern, feature-rich desktop application for downloading videos and audio from
 
 ### What's New
 
-*   **v2.1.2 (Current):**
+*   **v2.2.0 (Current):**
+    *   `feat:` **Playlist support** — paste a playlist link to select videos and bulk-download them at a chosen quality.
+    *   `feat:` **Cancel & Retry** on downloads — retrying resumes the partial file instead of starting over.
+    *   `feat:` Optional **subtitle and thumbnail/metadata embedding** for downloads.
+    *   `feat:` A dismissible **clipboard hint** offers to paste a video link you've just copied.
+    *   `feat:` macOS installer now also available for **Intel Macs**, alongside Apple Silicon.
+    *   `fix:` A failed download no longer leaves its row stuck on "Queued" — it's re-enabled for a retry.
+
+*   **v2.1.2:**
     *   `feat:` Added a **Language** filter alongside Quality and Format, so videos with multiple audio/dub tracks are easy to narrow down.
     *   `feat:` The app now runs natively on **macOS (Apple Silicon)** as well as Windows, with a proper `.dmg` installer.
     *   `feat:` The app now automatically checks for `yt-dlp` updates on launch and can self-repair a corrupted `yt-dlp`/`ffmpeg` install.
@@ -45,6 +54,10 @@ A modern, feature-rich desktop application for downloading videos and audio from
 *   **Download Videos & Audio:** Fetch a list of all available video and audio formats.
 *   **Multi-Language Audio Support:** For videos with multiple audio tracks, you can now choose which language to download.
 *   **Quality, Format & Language Filters:** Instantly narrow the formats list down to exactly what you're looking for.
+*   **Playlist Support:** Paste a playlist link to select and bulk-download multiple videos at once.
+*   **Cancel & Retry:** Cancel an in-progress download or retry a failed one directly from the queue — retrying resumes the partial file rather than starting over.
+*   **Subtitle & Metadata Embedding:** Optionally embed subtitles, thumbnail, and metadata into your downloads.
+*   **Clipboard Link Detection:** A dismissible hint offers to paste a video link you've just copied.
 *   **MP3 Conversion:** Download and convert any video to a high-quality MP3 file.
 *   **Private Video Support:** Download age-restricted or members-only content by providing a single, consolidated `cookies.txt` file.
 *   **Persistent User Settings:** Remembers your last-used save location and cookies file between sessions.
@@ -67,10 +80,10 @@ A modern, feature-rich desktop application for downloading videos and audio from
 2.  Download `SmartVideoDownloaderSetup-Windows.exe`.
 3.  Run the installer. Windows Defender may show a warning; this is normal for an unsigned installer. Click `More info` -> `Run anyway` to proceed.
 
-#### macOS (Apple Silicon)
+#### macOS
 
-1.  Go to the [**Releases Page**](https://github.com/adnaanaeem/smart-video-downloader/releases/latest) (or use the **Download for macOS** button above).
-2.  Download `SmartVideoDownloader-macOS-arm64.dmg`, open it, and drag **Smart Video Downloader** into your **Applications** folder.
+1.  Go to the [**Releases Page**](https://github.com/adnaanaeem/smart-video-downloader/releases/latest) (or use one of the **Download for macOS** buttons above — pick **Apple Silicon** for any Mac from 2020 onward, or **Intel** for an older Mac).
+2.  Download the matching `.dmg`, open it, and drag **Smart Video Downloader** into your **Applications** folder.
 3.  On first launch, macOS Gatekeeper will likely block the app because it isn't notarized by Apple (that requires a paid Apple Developer account — nothing is wrong with the app itself). If you see a warning like *"Smart Video Downloader" can't be opened* or it's offered to be moved to the Trash, fix it with either method below:
     *   **Option A:** Right-click (or Control-click) the app in Applications → **Open** → click **Open** again in the confirmation dialog. You only need to do this once.
     *   **Option B (newer macOS versions, e.g. Sequoia+):** Open **System Settings → Privacy & Security**, scroll down to the security notice mentioning the app was blocked, and click **Open Anyway**, then confirm once more when prompted.

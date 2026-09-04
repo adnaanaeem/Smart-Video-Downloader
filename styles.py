@@ -54,6 +54,10 @@ def generate_stylesheet():
     #queueCounter {{ color: {THEME["TEXT_SECONDARY"]}; }}
     #queueItemTitle {{ font-size: 13px; }}
     #queueItemPercent {{ font-size: 13px; color: {THEME["TEXT_SECONDARY"]}; font-weight: bold; }}
+    #queueItemActionButton {{ background-color: {THEME["BUTTON_SECONDARY"]}; color: {THEME["TEXT_PRIMARY"]}; font-size: 11px; border: none; border-radius: 5px; }}
+    #queueItemActionButton:hover {{ background-color: {THEME["PRIMARY_ACCENT"]}; color: white; }}
+    #clipboardHintButton {{ background-color: transparent; color: {THEME["LINK"]}; border: none; text-align: left; font-size: 12px; padding: 2px 0px; }}
+    #clipboardHintButton:hover {{ text-decoration: underline; }}
     QProgressBar {{ border: none; background-color: {THEME["PROGRESS_BAR_BG"]}; border-radius: 4px; }}
     QProgressBar::chunk {{ background-color: {THEME["PROGRESS_IN_PROGRESS"]}; }}
     QProgressBar[status="completed"]::chunk {{ background-color: {THEME["PROGRESS_COMPLETED"]}; }}

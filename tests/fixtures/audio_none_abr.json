@@ -1,0 +1,12 @@
+{
+  "id": "test3",
+  "title": "Test Audio None Abr Video",
+  "webpage_url": "https://example.com/test3",
+  "thumbnail": null,
+  "description": "",
+  "formats": [
+    {"format_id": "v1", "ext": "mp4", "vcodec": "avc1.640028", "acodec": "none", "height": 1080, "filesize_approx": 40000000},
+    {"format_id": "a1", "ext": "webm", "vcodec": "none", "acodec": "opus", "abr": null},
+    {"format_id": "a2", "ext": "m4a", "vcodec": "none", "acodec": "mp4a.40.2", "abr": null, "language": "en", "language_name": "English"}
+  ]
+}

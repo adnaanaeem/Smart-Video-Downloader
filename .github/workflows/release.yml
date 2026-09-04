@@ -42,7 +42,7 @@ jobs:
           name: windows-installer
           path: Output/SmartVideoDownloaderSetup-Windows.exe
 
-  build-macos:
+  build-macos-arm64:
     # Pinned to macos-14 (Apple Silicon/arm64) rather than the floating
     # macos-latest alias, so the build target stays predictable.
     runs-on: macos-14
@@ -87,11 +87,62 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-installer
+          name: macos-arm64-installer
           path: SmartVideoDownloader-macOS-arm64.dmg
 
+  build-macos-intel:
+    # Intel/x86_64 counterpart to build-macos-arm64, for pre-Apple Silicon Macs.
+    # A single universal2 build could replace both jobs (PyQt6 publishes universal2
+    # wheels), but verifying that actually works needs real Mac hardware to debug
+    # if it doesn't - two separate, predictable per-arch builds is the safer default
+    # without that hardware available.
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Generate icon.icns from icon.png
+        run: |
+          mkdir icon.iconset
+          sips -z 16 16     icon.png --out icon.iconset/icon_16x16.png
+          sips -z 32 32     icon.png --out icon.iconset/icon_16x16@2x.png
+          sips -z 32 32     icon.png --out icon.iconset/icon_32x32.png
+          sips -z 64 64     icon.png --out icon.iconset/icon_32x32@2x.png
+          sips -z 128 128   icon.png --out icon.iconset/icon_128x128.png
+          sips -z 256 256   icon.png --out icon.iconset/icon_128x128@2x.png
+          sips -z 256 256   icon.png --out icon.iconset/icon_256x256.png
+          sips -z 512 512   icon.png --out icon.iconset/icon_256x256@2x.png
+          sips -z 512 512   icon.png --out icon.iconset/icon_512x512.png
+          sips -z 1024 1024 icon.png --out icon.iconset/icon_512x512@2x.png
+          iconutil -c icns icon.iconset -o icon.icns
+
+      - name: Build .app with PyInstaller
+        run: >
+          pyinstaller --name "Smart Video Downloader" --onefile --windowed
+          --icon="icon.icns" --add-data "icon.icns:." --add-data "icon.ico:."
+          --add-data "icon.png:." main.py
+
+      - name: Package .dmg
+        run: |
+          hdiutil create -volname "Smart Video Downloader" \
+            -srcfolder "dist/Smart Video Downloader.app" \
+            -ov -format UDZO "SmartVideoDownloader-macOS-x86_64.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-intel-installer
+          path: SmartVideoDownloader-macOS-x86_64.dmg
+
   publish-release:
-    needs: [build-windows, build-macos]
+    needs: [build-windows, build-macos-arm64, build-macos-intel]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
@@ -102,12 +153,18 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: macos-installer
-          path: dist-macos
+          name: macos-arm64-installer
+          path: dist-macos-arm64
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-intel-installer
+          path: dist-macos-intel
 
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             dist-windows/SmartVideoDownloaderSetup-Windows.exe
-            dist-macos/SmartVideoDownloader-macOS-arm64.dmg
+            dist-macos-arm64/SmartVideoDownloader-macOS-arm64.dmg
+            dist-macos-intel/SmartVideoDownloader-macOS-x86_64.dmg
           generate_release_notes: true
