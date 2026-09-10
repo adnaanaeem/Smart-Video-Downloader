@@ -2,7 +2,7 @@
 # Central configuration file for the application.
 
 APP_TITLE = "Smart Video Downloader"
-APP_VERSION = "v2.3.2"
+APP_VERSION = "v2.3.3"
 
 # --- Developer Info ---
 DEV_NAME = "Adnan Naeem"
@@ -19,6 +19,13 @@ FFMPEG_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffm
 # Dependencies (macOS)
 YT_DLP_URL_MAC = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
 FFMPEG_URL_MAC = "https://evermeet.cx/ffmpeg/getrelease/zip"
+
+# Deno (JS runtime yt-dlp needs to solve YouTube's signature/"n" challenge - see
+# workers.py DenoDownloadWorker/is_js_runtime_challenge_error). Portable zips, no
+# installer, a single root-level binary on both platforms (verified by downloading
+# and inspecting both zips directly before relying on this).
+DENO_URL_WINDOWS = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip"
+DENO_URL_MAC = "https://github.com/denoland/deno/releases/latest/download/deno-aarch64-apple-darwin.zip"
 
 # App self-updater installer assets (version-agnostic "latest" filenames, same
 # ones the README download buttons and release.yml's publish-release job use).

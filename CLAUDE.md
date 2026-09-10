@@ -153,6 +153,107 @@ the two). Saved on every change and on `closeEvent`.
 
 Keep entries short: version/date, what changed, why, where.
 
+### 2026-09-10 (v2.3.3) — feat: automatic self-heal for YouTube's signature/"n" challenge (lazy Deno download + retry)
+- **feat (user-reported real failure, root-caused live):** user hit
+  `ERROR: [youtube] <id>: Requested format is not available` on a real
+  video, with the Details dialog showing `WARNING: Signature solving
+  failed` / `WARNING: n challenge solving failed` / `WARNING: Only images
+  are available for download`. Root-caused by reproducing the exact same
+  download through the app's own code path (probe → fetch → format-table
+  population → clicking the real Download button → real `DownloadWorker`)
+  via a scripted test (no screenshots) — it completed successfully on this
+  dev machine. The difference: this machine has Node.js installed, which
+  let yt-dlp solve YouTube's new signature/"n" parameter obfuscation; a
+  machine with no JS runtime at all gets every non-image format rejected.
+  Confirmed via `github.com/yt-dlp/yt-dlp/wiki/EJS` this is a real, current
+  (not stale-binary) requirement: YouTube's challenge now needs yt-dlp to
+  execute JS to deobfuscate its formats, and yt-dlp needs an external JS
+  runtime (Deno recommended, Node/QuickJS also supported) to do that;
+  confirmed the bundled `yt-dlp.exe` was already latest (`2026.08.19`) via
+  the GitHub API, ruling out a version-staleness explanation.
+  **Discussed the fix approach directly with the user** rather than
+  guessing: first offered an in-app "friendly error dialog explaining Deno"
+  (declined, they wanted to fix their own machine manually first), then
+  asked "how do we fix this automatically for all users" and landed on:
+  **lazy** (only touch it when a real download actually hits this error,
+  not bundled/downloaded for every user upfront) + **fully automatic**
+  (download the fix and retry the failed download with zero extra user
+  interaction) + **visible progress/messaging** (not silent).
+  **Implementation, verified end-to-end via real network calls, not
+  mocks:**
+  - `workers.py` `DENO_PATH` (`get_bin_dir()/deno[.exe]`, same convention
+    as `YTDLP_PATH`/`FFMPEG_PATH`) and `is_js_runtime_challenge_error(msg)`
+    — a small pure/testable classifier keyed on `"challenge solving
+    failed"` / `"only images are available for download"`, deliberately
+    NOT on the generic `"Requested format is not available"` line (that
+    one also fires for genuinely-unavailable formats unrelated to this).
+  - `workers.py` `DenoDownloadWorker` — downloads Deno's official portable
+    release zip (`config.DENO_URL_WINDOWS`/`DENO_URL_MAC`, new constants,
+    same version-agnostic `/releases/latest/download/<filename>` pattern
+    as every other installer URL in this project) and extracts the single
+    root-level `deno.exe`/`deno` member. **Verified the zip's internal
+    layout by actually downloading and inspecting both platform zips
+    first** (same "don't guess a zip's shape" lesson this file already
+    documents for the ffmpeg mac zip) — both are flat, single-member, no
+    subfolder to walk, simpler than ffmpeg's Windows nested-`bin/` case.
+    Key fact confirmed directly from yt-dlp's own docs and then verified
+    live: **on Windows, yt-dlp auto-detects a JS runtime sitting in the
+    same folder as `yt-dlp.exe`** — no PATH edits, no `--js-runtimes` flag
+    needed, so dropping `deno.exe` into the app's existing `get_bin_dir()`
+    (where `yt-dlp.exe`/`ffmpeg.exe` already live) is sufficient by itself.
+    Confirmed with `yt-dlp.exe -v --list-formats` after a real download:
+    debug output showed `JS runtimes: deno-2.9.6` and `JS Challenge
+    Providers: ... deno, ...` picked up automatically.
+  - `main.py`: `self.deno_found` (informational, like `ffmpeg_found`/
+    `ytdlp_found`), `self.deno_download_in_progress` +
+    `self.deno_pending_retry_uids` (so multiple queued downloads hitting
+    this simultaneously, e.g. a playlist, share one Deno download instead
+    of each starting a redundant one), `self.js_runtime_retry_attempted`
+    (a set of unique_ids already auto-retried once, to guarantee this
+    never loops — if Deno is already present and the same video still
+    fails the same way, it falls straight through to the normal
+    Failed/Retry UI instead of re-downloading Deno pointlessly).
+    `_on_download_finished` gained one guarded branch before its existing
+    failure handling: on an `is_js_runtime_challenge_error` match (not
+    cancelled, Deno not already present, not already retried once for
+    this `unique_id`) it calls the new `_start_deno_auto_fix` instead of
+    marking the item failed. `_start_deno_auto_fix`/
+    `_on_deno_download_progress`/`_on_deno_auto_fix_finished` show
+    messaging *in the affected queue item's own row* (not a blocking modal
+    — other queued downloads keep running normally) via the existing
+    `percentage_label`/`progress_bar` widgets already used for real
+    download progress, so it reads as part of the same download rather
+    than a separate/unexplained event: `"This video needs an extra
+    one-time component to unlock its formats — downloading it now..."` →
+    live `N%` progress → `"Retrying download..."` → normal progress again
+    on the automatic retry (reuses `_launch_download`, identical to the
+    existing manual Retry button's mechanism) → `"Completed"`. On the rare
+    case the Deno download itself fails, falls back to the normal
+    Failed/Retry state plus a `_show_error` explaining what happened and
+    pointing at manually installing Deno from deno.com.
+  - New `localization.py` strings: `JS_RUNTIME_DOWNLOADING[_PERCENT]`,
+    `JS_RUNTIME_RETRYING`, `JS_RUNTIME_TOOLTIP` (set on the item's title
+    label so hovering explains why an unrelated download briefly appeared
+    to start), `JS_RUNTIME_FIX_FAILED`.
+  - `.gitignore` gained `/deno` (the extensionless mac binary; `*.exe`
+    already covers `deno.exe`/`deno.zip` is covered by the existing
+    `*.zip` rule).
+  **Verified live, real network, no mocks, in this order:** (1) the
+  classifier against the user's actual error text — matches; against an
+  unrelated error string — correctly does not match. (2) `DenoDownloadWorker`
+  run directly — downloaded and extracted a real working `deno.exe`,
+  confirmed executable (`deno --version` → `deno 2.9.6`). (3) yt-dlp
+  auto-detecting it with zero configuration, confirmed via `-v` debug
+  output. (4) The full in-app state machine end-to-end via a scripted
+  (not GUI-clicking) test with `deno_found` forced `False`: triggering
+  `_on_download_finished` with a synthetic copy of the user's real error
+  text correctly showed the "downloading required component" message,
+  downloaded Deno for real, automatically retried, and completed with a
+  real, valid downloaded file (confirmed via `ffmpeg -i` duration check).
+  (5) The skip path with `deno_found` forced `True`: same synthetic error
+  correctly fell straight through to the normal Failed/Retry UI with no
+  re-download and no loop. `pytest tests/ -q` 14/14 passing throughout.
+
 ### 2026-09-10 (v2.3.2) — feat: true in-app self-updating (download + launch installer)
 - **feat (user ask: "app update it self by prompting user to update... then
   download it self and run the start the installer"):** the existing

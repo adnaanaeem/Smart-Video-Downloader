@@ -23,8 +23,9 @@ from styles import generate_stylesheet
 from workers import (
     Spinner, ModalDialog, DeveloperDialog, DownloadItem,
     VersionCheckWorker, FFmpegHealthCheckWorker, AppUpdateCheckWorker, AppUpdateDownloadWorker, YTDlpWorker, FFmpegDownloadWorker,
+    DenoDownloadWorker, is_js_runtime_challenge_error,
     FetchWorker, PlaylistProbeWorker, ThumbnailWorker, DownloadWorker, Mp3DownloadWorker,
-    YTDLP_PATH, FFMPEG_PATH, IS_MAC
+    YTDLP_PATH, FFMPEG_PATH, DENO_PATH, IS_MAC
 )
 
 # --- HELPER FUNCTIONS ---
@@ -49,7 +50,8 @@ class SmartVideoDownloader(QMainWindow):
         self.setWindowTitle(f"{config.APP_TITLE} {config.APP_VERSION}"); self.setWindowIcon(QIcon(resource_path("icon.ico"))); self.setMinimumSize(850, 700)
         self.fetched_data = None; self.download_items = {}; self.downloads_completed = 0; self.downloads_total = 0
         self.dependency_dialog = None; self.save_path = ""; self.cookies_path = None
-        self.ffmpeg_found = os.path.exists(FFMPEG_PATH); self.ytdlp_found = os.path.exists(YTDLP_PATH)
+        self.ffmpeg_found = os.path.exists(FFMPEG_PATH); self.ytdlp_found = os.path.exists(YTDLP_PATH); self.deno_found = os.path.exists(DENO_PATH)
+        self.deno_download_in_progress = False; self.deno_pending_retry_uids = []; self.js_runtime_retry_attempted = set()
         self.app_update_thread = None; self.version_thread = None; self.ffmpeg_health_thread = None
         self.download_source_buttons = {}; self.download_requests = {}; self.active_workers = {}; self.active_threads = []
         self.playlist_entries = []; self.playlist_checkboxes = []
@@ -791,6 +793,10 @@ class SmartVideoDownloader(QMainWindow):
                 item.action_btn.setText(STRINGS["SHOW_IN_FOLDER_BUTTON"]); item.action_btn.setEnabled(True)
             else:
                 cancelled = (message == STRINGS["CANCELLED_STATUS"])
+                if not cancelled and is_js_runtime_challenge_error(message) and not self.deno_found and unique_id not in self.js_runtime_retry_attempted:
+                    self.js_runtime_retry_attempted.add(unique_id)
+                    self._start_deno_auto_fix(unique_id, item)
+                    return
                 item.state = "cancelled" if cancelled else "failed"
                 if cancelled:
                     item.percentage_label.setText(STRINGS["CANCELLED_STATUS"]); item.progress_bar.setProperty("status", "failed")
@@ -810,7 +816,52 @@ class SmartVideoDownloader(QMainWindow):
                     except RuntimeError: pass
             item.progress_bar.style().unpolish(item.progress_bar); item.progress_bar.style().polish(item.progress_bar)
         self._update_queue_counter()
-        
+
+    def _start_deno_auto_fix(self, unique_id, item):
+        """A download just failed with YouTube's signature/"n" challenge error
+        (is_js_runtime_challenge_error) - self-heal by downloading Deno (the JS runtime
+        yt-dlp needs to solve it) and automatically retrying this download, instead of
+        just dumping the raw yt-dlp warnings on the user. If multiple queued downloads hit
+        this at once (e.g. a playlist), they all queue behind the same single Deno download
+        rather than each starting their own."""
+        item.percentage_label.setText(STRINGS["JS_RUNTIME_DOWNLOADING"]); item.title_label.setToolTip(STRINGS["JS_RUNTIME_TOOLTIP"])
+        item.action_btn.setEnabled(False)
+        self.deno_pending_retry_uids.append(unique_id)
+        if self.deno_download_in_progress: return
+        self.deno_download_in_progress = True
+        self.deno_dl_thread = QThread(); self.deno_dl_worker = DenoDownloadWorker(); self.deno_dl_worker.moveToThread(self.deno_dl_thread)
+        self.deno_dl_thread.started.connect(self.deno_dl_worker.run)
+        self.deno_dl_worker.signals.ytdlp_progress.connect(self._on_deno_download_progress)
+        self.deno_dl_worker.signals.ytdlp_finished.connect(self._on_deno_auto_fix_finished)
+        self.deno_dl_worker.signals.ytdlp_finished.connect(self.deno_dl_thread.quit)
+        self.deno_dl_worker.signals.ytdlp_finished.connect(self.deno_dl_worker.deleteLater)
+        self.deno_dl_thread.finished.connect(self.deno_dl_thread.deleteLater)
+        self.deno_dl_thread.start()
+
+    def _on_deno_download_progress(self, message):
+        for uid in self.deno_pending_retry_uids:
+            item = self.download_items.get(uid)
+            if item: item.percentage_label.setText(message)
+
+    def _on_deno_auto_fix_finished(self, success, message):
+        self.deno_download_in_progress = False
+        pending = self.deno_pending_retry_uids; self.deno_pending_retry_uids = []
+        if success:
+            self.deno_found = True
+            for uid in pending:
+                item = self.download_items.get(uid); request = self.download_requests.get(uid)
+                if not item or not request: continue
+                item.percentage_label.setText(STRINGS["JS_RUNTIME_RETRYING"]); item.action_btn.setText(STRINGS["CANCEL_BUTTON"]); item.action_btn.setEnabled(True)
+                item.progress_bar.setValue(0); item.progress_bar.setProperty("status", ""); item.progress_bar.style().unpolish(item.progress_bar); item.progress_bar.style().polish(item.progress_bar)
+                self._launch_download(uid, request)
+        else:
+            for uid in pending:
+                item = self.download_items.get(uid)
+                if not item: continue
+                item.state = "failed"; item.percentage_label.setText(STRINGS["FAILED_STATUS"]); item.action_btn.setText(STRINGS["RETRY_BUTTON"]); item.action_btn.setEnabled(True)
+                item.progress_bar.setProperty("status", "failed"); item.progress_bar.style().unpolish(item.progress_bar); item.progress_bar.style().polish(item.progress_bar)
+            self._show_error(STRINGS["JS_RUNTIME_FIX_FAILED"].format(error=message))
+
     def _update_queue_counter(self): self.progress_counter.setText(STRINGS["COMPLETED_COUNTER"].format(completed=self.downloads_completed, total=self.downloads_total))
     
     def _show_error(self, message, is_private=False):

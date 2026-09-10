@@ -95,6 +95,13 @@ STRINGS = {
     "APP_UPDATE_DOWNLOAD_FAILED": "Failed to download the update:\n{error}\n\nYou can download it manually from the GitHub releases page.",
     "APP_UPDATE_LAUNCH_FAILED": "The update was downloaded but couldn't be launched automatically:\n{error}\n\nYou can run the installer manually from:\n{path}",
     "APP_UPDATE_MAC_MOUNTED": "The new version has been downloaded and opened in Finder.\n\nDrag \"Smart Video Downloader\" into your Applications folder to finish updating, then relaunch the app.",
+
+    # --- Automatic JS-runtime (Deno) self-fix for YouTube's signature/"n" challenge ---
+    "JS_RUNTIME_DOWNLOADING": "This video needs an extra one-time component to unlock its formats — downloading it now...",
+    "JS_RUNTIME_DOWNLOADING_PERCENT": "Downloading required component... {percent}%",
+    "JS_RUNTIME_RETRYING": "Retrying download...",
+    "JS_RUNTIME_TOOLTIP": "YouTube required an extra component (a JavaScript runtime) to unlock this video's formats. Downloaded automatically — one-time only.",
+    "JS_RUNTIME_FIX_FAILED": "This video needs an extra one-time component to download (YouTube's format-unlock challenge), but downloading it automatically failed:\n{error}\n\nYou can install Deno manually from https://deno.com and try again.",
     "APP_UP_TO_DATE": "You are running the latest version!\n\nVersion: {app_version}",
     "YTDLP_UPDATE_FAILED": "Could not verify yt-dlp version.",
     "YTDLP_UPDATE_AVAILABLE": "A new version of yt-dlp is available.\n\nCurrent: {local_version}\nLatest: {latest_version}\n\nDownload and restart?",

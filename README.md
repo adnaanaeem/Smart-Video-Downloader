@@ -12,7 +12,10 @@ A modern, feature-rich desktop application for downloading videos and audio from
 
 ### What's New
 
-*   **v2.3.2 (Current):**
+*   **v2.3.3 (Current):**
+    *   `fix:` Downloads that fail because YouTube's signature/"n" challenge needs a JavaScript runtime (`Signature solving failed`, `Only images are available for download`) now **fix themselves automatically** — the app downloads a small one-time component (Deno) and retries the download, with clear progress shown right in the queue item. No manual setup needed.
+
+*   **v2.3.2:**
     *   `feat:` **True in-app self-updating.** "Check for Updates" (and the silent startup check) now downloads the new release's installer itself and launches it — Windows opens the installer wizard directly and the app closes itself to let it run; macOS downloads and mounts the new `.dmg` in Finder so you can drag it into Applications. Previously this just opened the GitHub releases page in a browser and left the rest to you.
 
 *   **v2.3.1:**

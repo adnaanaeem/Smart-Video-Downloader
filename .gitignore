@@ -16,3 +16,4 @@ Output/
 *.zip
 *.dmg
 *.icns
+/deno

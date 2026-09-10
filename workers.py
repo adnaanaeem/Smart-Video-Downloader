@@ -27,6 +27,15 @@ IS_MAC = sys.platform.startswith("darwin")
 EXE_SUFFIX = "" if IS_MAC else ".exe"
 YTDLP_PATH = os.path.join(get_bin_dir(), f"yt-dlp{EXE_SUFFIX}")
 FFMPEG_PATH = os.path.join(get_bin_dir(), f"ffmpeg{EXE_SUFFIX}")
+DENO_PATH = os.path.join(get_bin_dir(), f"deno{EXE_SUFFIX}")
+
+def is_js_runtime_challenge_error(message):
+    """True if a yt-dlp failure message is YouTube's signature/"n" challenge-solving failure
+    (needs a JS runtime like Deno - see DenoDownloadWorker), not a genuine unrelated
+    unavailable-format error. Pure/testable - no subprocess involved."""
+    if not message: return False
+    m = message.lower()
+    return "challenge solving failed" in m or "only images are available for download" in m
 
 # subprocess.CREATE_NO_WINDOW only exists on Windows; 0 is a documented no-op elsewhere.
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -247,6 +256,40 @@ class FFmpegDownloadWorker(QObject):
             if os.path.exists(zip_path):
                 os.remove(zip_path)
             self.signals.ytdlp_finished.emit(False, STRINGS["ERROR_FFMPEG_DOWNLOAD_FAILED"].format(error=str(e)))
+
+class DenoDownloadWorker(QObject):
+    """Lazily fetches the Deno JS runtime yt-dlp needs to solve YouTube's signature/"n" challenge
+    (see is_js_runtime_challenge_error) - only triggered on-demand when a real download actually
+    hits that failure, not bundled/downloaded upfront for every user. Deno's release zips are flat
+    on both platforms - a single root-level 'deno.exe'/'deno', no subfolder to walk - verified by
+    downloading and inspecting both zips directly before relying on this (same "don't guess a zip's
+    internal layout" lesson as FFmpegDownloadWorker's mac branch above). yt-dlp auto-detects a
+    runtime placed in the same folder as yt-dlp.exe on Windows, no PATH/flag changes needed - reuses
+    get_bin_dir() for exactly that reason."""
+    def __init__(self): super().__init__(); self.signals = WorkerSignals()
+    def run(self):
+        zip_path = os.path.join(get_bin_dir(), "deno.zip")
+        try:
+            self.signals.ytdlp_progress.emit(STRINGS["JS_RUNTIME_DOWNLOADING"])
+            url = config.DENO_URL_MAC if IS_MAC else config.DENO_URL_WINDOWS
+            response = requests.get(url, stream=True, timeout=15)
+            total_size = int(response.headers.get('content-length', 0))
+            with open(zip_path, "wb") as f:
+                downloaded_size = 0
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk); downloaded_size += len(chunk)
+                        if total_size > 0: self.signals.ytdlp_progress.emit(STRINGS["JS_RUNTIME_DOWNLOADING_PERCENT"].format(percent=int(100 * downloaded_size / total_size)))
+            member = "deno" if IS_MAC else "deno.exe"
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extract(member, path=get_bin_dir())
+            os.replace(os.path.join(get_bin_dir(), member), DENO_PATH)
+            if IS_MAC: os.chmod(DENO_PATH, 0o755)
+            os.remove(zip_path)
+            self.signals.ytdlp_finished.emit(True, DENO_PATH)
+        except Exception as e:
+            if os.path.exists(zip_path): os.remove(zip_path)
+            self.signals.ytdlp_finished.emit(False, str(e))
 
 class FetchWorker(QObject):
     def __init__(self, url, cookies_path=None):
