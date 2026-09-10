@@ -153,7 +153,32 @@ the two). Saved on every change and on `closeEvent`.
 
 Keep entries short: version/date, what changed, why, where.
 
-### 2026-09-04 (post-v2.3.0) — fix: clip + parallel-fragments combo near-stalls; not in the tagged v2.3.0 build
+### 2026-09-10 (v2.3.1) — feat: explicit 8K/4K playlist quality options
+- **feat (user ask: "give support for 8k video download availability"):**
+  investigated first rather than assuming code changes were needed — the
+  single-video formats table (`main.py` `_populate_formats_table`) already
+  has **no resolution ceiling**: it lists every format yt-dlp reports for a
+  video, sorted by `height` descending, so a source with a real 4320p (8K)
+  stream already appeared as a downloadable row with zero changes. Also
+  confirmed `--merge-output-format mp4` (`workers.py`, `DownloadWorker`)
+  isn't a blocker — ffmpeg remuxes VP9/AV1 (the codecs 8K YouTube streams
+  use) into an mp4 container without re-encoding.
+  The one real gap was the **playlist bulk-download quality dropdown**
+  (`main.py` `_create_playlist_section`/`_on_playlist_download_clicked`),
+  which only exposed Best/1080p/720p/480p/Audio explicitly — "Best" was
+  already uncapped and would silently grab 8K if a playlist entry had it,
+  but there was no way to *target* 4K/8K specifically the way the
+  single-video table already allowed.
+  **Fix:** added `PLAYLIST_QUALITY_8K`/`PLAYLIST_QUALITY_4K` strings
+  (`localization.py`) and wired them into the dropdown's `addItems(...)`
+  call and the `height_map` dict in `_on_playlist_download_clicked`
+  (4320/2160 respectively), reusing the exact same `bestvideo[height<=N]+
+  bestaudio/best[height<=N]` selector pattern the 1080p/720p/480p options
+  already use. `pytest tests/ -q` 14/14 passing after the change (no new
+  test added — this is a static dropdown-items/dict-literal change with no
+  new branching logic to regression-test).
+
+### 2026-09-04 (v2.3.1) — fix: clip + parallel-fragments combo near-stalls; not in the tagged v2.3.0 build
 - **fix (real bug, found after user re-tested the force-keyframes fix above
   and reported it was "still very long" despite the fix landing):** the
   force-keyframes fix above solved the *encoding* hang, but the user's
@@ -178,9 +203,10 @@ Keep entries short: version/date, what changed, why, where.
   multi-minute network download to reproduce, not something worth doing
   in CI — the UI-level prevention is the actual fix).
   **Note:** this fix was made *after* the `v2.3.0` tag was already pushed
-  and its release build completed — the tagged v2.3.0 installers do
-  **not** include it. Flagged to the user; whether it ships as a v2.3.1
-  patch or waits is their call, not assumed.
+  and its release build completed, so the tagged v2.3.0 installers do
+  **not** include it. Flagged to the user, who confirmed it should ship as
+  a v2.3.1 patch alongside the 8K playlist-quality feature above — folded
+  into that release together.
 
 ### 2026-09-04 (v2.3.0) — fix: clip downloads looked hung for anything longer than ~30s
 - **fix (real bug, found by the user testing a real 6-minute clip):**

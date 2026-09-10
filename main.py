@@ -178,7 +178,7 @@ class SmartVideoDownloader(QMainWindow):
         footer_row = QHBoxLayout()
         quality_label = QLabel(STRINGS["PLAYLIST_QUALITY_LABEL"]); quality_label.setObjectName("filterDropdownLabel")
         self.playlist_quality_combo = QComboBox()
-        self.playlist_quality_combo.addItems([STRINGS["PLAYLIST_QUALITY_BEST"], STRINGS["PLAYLIST_QUALITY_1080P"], STRINGS["PLAYLIST_QUALITY_720P"], STRINGS["PLAYLIST_QUALITY_480P"], STRINGS["PLAYLIST_QUALITY_AUDIO"]])
+        self.playlist_quality_combo.addItems([STRINGS["PLAYLIST_QUALITY_BEST"], STRINGS["PLAYLIST_QUALITY_8K"], STRINGS["PLAYLIST_QUALITY_4K"], STRINGS["PLAYLIST_QUALITY_1080P"], STRINGS["PLAYLIST_QUALITY_720P"], STRINGS["PLAYLIST_QUALITY_480P"], STRINGS["PLAYLIST_QUALITY_AUDIO"]])
         self.playlist_download_btn = QPushButton(STRINGS["PLAYLIST_DOWNLOAD_SELECTED_BUTTON"]); self.playlist_download_btn.setObjectName("fetchButton"); self.playlist_download_btn.clicked.connect(self._on_playlist_download_clicked)
         footer_row.addWidget(quality_label); footer_row.addWidget(self.playlist_quality_combo); footer_row.addStretch(); footer_row.addWidget(self.playlist_download_btn)
 
@@ -203,7 +203,7 @@ class SmartVideoDownloader(QMainWindow):
 
         quality_text = self.playlist_quality_combo.currentText()
         is_mp3 = quality_text == STRINGS["PLAYLIST_QUALITY_AUDIO"]
-        height_map = {STRINGS["PLAYLIST_QUALITY_1080P"]: 1080, STRINGS["PLAYLIST_QUALITY_720P"]: 720, STRINGS["PLAYLIST_QUALITY_480P"]: 480}
+        height_map = {STRINGS["PLAYLIST_QUALITY_8K"]: 4320, STRINGS["PLAYLIST_QUALITY_4K"]: 2160, STRINGS["PLAYLIST_QUALITY_1080P"]: 1080, STRINGS["PLAYLIST_QUALITY_720P"]: 720, STRINGS["PLAYLIST_QUALITY_480P"]: 480}
         max_height = height_map.get(quality_text)
         embed_subs = self.embed_subs_checkbox.isChecked(); embed_metadata = self.embed_metadata_checkbox.isChecked()
         concurrent_fragments = self.PARALLEL_FRAGMENTS_COUNT if self.parallel_fragments_checkbox.isChecked() else None

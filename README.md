@@ -12,7 +12,11 @@ A modern, feature-rich desktop application for downloading videos and audio from
 
 ### What's New
 
-*   **v2.3.0 (Current):**
+*   **v2.3.1 (Current):**
+    *   `feat:` Explicit **8K (4320p)** and **4K (2160p)** quality options in the playlist bulk-download dropdown. (Single-video downloads already had no resolution ceiling — any 8K/4K source stream already showed up in the formats table; this just adds matching explicit options to the playlist quality picker.)
+    *   `fix:` Combining **Download Clip Only** with **Faster Downloads (Parallel Fragments)** could near-stall a download for many minutes. The two are no longer allowed to be enabled together — turning on clip mode now disables parallel fragments automatically.
+
+*   **v2.3.0:**
     *   `feat:` **Clip/time-range downloading** — download just a portion of a video (e.g. 1:30–4:00) instead of the whole thing.
     *   `feat:` Optional **parallel-fragment downloads** for a possible speed boost (off by default — see the project notes on why it isn't a guaranteed win).
     *   `feat:` **"Show in Folder"** button on completed downloads — jump straight to the file in Explorer/Finder.
