@@ -93,7 +93,7 @@ A modern, feature-rich desktop application for downloading videos and audio from
 
 #### macOS (Apple Silicon)
 
-1.  Go to the [**Releases Page**](https://github.com/adnaanaeem/smart-video-downloader/releases/latest) (or use the **Download for macOS** button above). Covers any Mac from 2020 onward (M1/M2/M3/M4); Intel support is planned for a future release.
+1.  Go to the [**Releases Page**](https://github.com/adnaanaeem/smart-video-downloader/releases/latest) (or use the **Download for macOS** button above). Covers any Mac from 2020 onward (M1/M2/M3/M4, Apple Silicon only).
 2.  Download `SmartVideoDownloader-macOS-arm64.dmg`, open it, and drag **Smart Video Downloader** into your **Applications** folder.
 3.  On first launch, macOS Gatekeeper will likely block the app because it isn't notarized by Apple (that requires a paid Apple Developer account — nothing is wrong with the app itself). If you see a warning like *"Smart Video Downloader" can't be opened* or it's offered to be moved to the Trash, fix it with either method below:
     *   **Option A:** Right-click (or Control-click) the app in Applications → **Open** → click **Open** again in the confirmation dialog. You only need to do this once.

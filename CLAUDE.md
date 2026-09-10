@@ -153,6 +153,33 @@ the two). Saved on every change and on `closeEvent`.
 
 Keep entries short: version/date, what changed, why, where.
 
+### 2026-09-10 (v2.3.1) — chore: dropped Intel Mac CI build entirely
+- **chore (user ask, after the v2.3.1 release hit the exact same Intel-runner
+  stall as v2.2.0 before it):** `.github/workflows/release.yml`'s
+  `build-macos-intel` job (`runs-on: macos-13`) has now been stuck queued
+  with zero runner assigned on **every single release since it was added**
+  — v2.2.0 (27+ min, manually worked around), v2.3.0 (worked around
+  silently), and v2.3.1 (1h23m+, worked around again) — while
+  `build-windows` and `build-macos-arm64` both consistently finish in under
+  2 minutes on the same trigger. This is GitHub's actual Intel-runner pool
+  shrinking (confirmed via githubstatus.com each time — never an incident,
+  just scarcity), not a flaky/transient issue worth retrying past.
+  **Fix:** removed the `build-macos-intel` job from `release.yml` entirely,
+  along with its `macos-intel-installer` artifact download and
+  `SmartVideoDownloader-macOS-x86_64.dmg` file reference in the
+  `publish-release` job's `needs`/`files` list — releases now only build
+  and publish Windows + macOS arm64, matching what's actually been shipped
+  in every release to date anyway. Removed the one remaining
+  "Intel support is planned for a future release" line from `README.md`'s
+  macOS install section (Intel Mac was never actually offered as a
+  download link — only that one line referenced it).
+  **Not removed:** `Output/`/`*.dmg`/`*.icns` gitignore entries, the
+  general two-installer-per-release pattern, and `setup_script.iss` are all
+  unaffected — this only touches the CI job and its one README mention.
+  Revisit if GitHub's Intel-runner availability improves, or if an actual
+  Intel-Mac user asks for support (nobody has, so far — this was always
+  best-effort, not a committed platform target).
+
 ### 2026-09-10 (v2.3.1) — feat: explicit 8K/4K playlist quality options
 - **feat (user ask: "give support for 8k video download availability"):**
   investigated first rather than assuming code changes were needed — the
