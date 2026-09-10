@@ -153,6 +153,74 @@ the two). Saved on every change and on `closeEvent`.
 
 Keep entries short: version/date, what changed, why, where.
 
+### 2026-09-10 (v2.3.2) — feat: true in-app self-updating (download + launch installer)
+- **feat (user ask: "app update it self by prompting user to update... then
+  download it self and run the start the installer"):** the existing
+  "Check for Updates" flow (`_check_for_app_updates`/`_on_app_update_checked`,
+  `main.py`) only ever compared versions via `AppUpdateCheckWorker` and, on
+  accept, called `webbrowser.open(...)` to the GitHub releases page — the
+  user had to find, download, and run the installer themselves. Replaced
+  that last step with a real download-and-launch flow, mirroring the
+  pattern `_start_ytdlp_download`/`YTDlpWorker` already uses for the
+  yt-dlp self-updater:
+  - New `AppUpdateDownloadWorker` (`workers.py`) streams the platform
+    installer to a temp file with progress, reusing the existing generic
+    `ytdlp_progress`/`ytdlp_finished` signals (same convention
+    `FFmpegDownloadWorker` already follows for a non-yt-dlp download, so no
+    new signal plumbing needed). New `config.py` constants
+    `APP_INSTALLER_URL_WINDOWS`/`APP_INSTALLER_URL_MAC` point at the same
+    version-agnostic `/releases/latest/download/<filename>` URLs the README
+    badges and `release.yml`'s `publish-release` job already use, so they
+    never need updating on a new release.
+  - `main.py` `_start_app_update_download`/`_on_app_update_downloaded`
+    wire this up through the same `dependency_dialog`/
+    `_update_dependency_progress` progress-dialog pattern used everywhere
+    else in the app (no new UI code needed).
+  - **Windows:** launches the downloaded `SmartVideoDownloaderSetup-Windows.exe`
+    via `subprocess.Popen(..., creationflags=DETACHED_PROCESS |
+    CREATE_NEW_PROCESS_GROUP)` so it survives this process exiting, then
+    calls `os._exit(0)` immediately — confirmed with the user this should
+    show the normal Inno Setup wizard (not a silent/unattended install) for
+    safety, so the user still clicks through 2-3 steps, but doesn't have to
+    go find/download/run it themselves first. The immediate `os._exit(0)`
+    matters: Windows won't let the installer overwrite this app's own
+    running `.exe` while it's still open, so the app must be fully gone by
+    the time the installer's file-copy step runs (the wizard's own
+    click-through UI naturally provides that buffer).
+  - **macOS:** true silent self-replacement isn't realistic for a `.dmg`
+    without a Sparkle-style framework (confirmed with the user, no Mac
+    available this session to build/verify one) — so mac downloads the
+    `.dmg` and runs `open <path>` to mount it and pop Finder open to it
+    automatically (`APP_UPDATE_MAC_MOUNTED` dialog tells the user to drag
+    it into Applications), which is a genuine improvement over "go find the
+    download page yourself" even though the final install step stays
+    manual, same as first-run install docs already describe.
+  - New `localization.py` strings: `DOWNLOAD_AND_INSTALL_BUTTON` (replaces
+    the now-unused `GO_TO_DOWNLOAD_PAGE`, dialog button text updated to
+    match the new behavior), `STATUS_DOWNLOADING_APP_UPDATE[_PERCENT]`,
+    `APP_UPDATE_DOWNLOAD_FAILED`, `APP_UPDATE_LAUNCH_FAILED`,
+    `APP_UPDATE_MAC_MOUNTED`. `APP_UPDATE_AVAILABLE`'s wording changed from
+    "go to the download page?" to "Download and install it now?" to match.
+  - Removed the now-dead `import webbrowser` from `main.py` (was only ever
+    used by the code path just replaced).
+  **Verified:** ran `AppUpdateDownloadWorker` directly against the real
+  live v2.3.1 release asset (not a mock) — downloaded the actual 40.6MB
+  `SmartVideoDownloaderSetup-Windows.exe` from
+  `.../releases/latest/download/...`, confirmed `ytdlp_finished` fired with
+  `success=True` and the file landed intact at the expected temp path.
+  **Not live-tested:** the actual `subprocess.Popen(...)` + `os._exit(0)`
+  launch-and-quit sequence on Windows, and the `open <dmg>` mount on
+  macOS — deliberately not run for real here, since doing so would have
+  launched the real installer over this dev machine's own working copy
+  (or, on mac, isn't testable at all without hardware). This is
+  well-understood, standard subprocess/OS behavior (not new/risky logic),
+  but flagging it explicitly per this project's "verify in the target
+  environment, not just around it" lesson from earlier entries — a human
+  should click through one real update before fully trusting this path
+  works end-to-end, particularly the Windows exe-overwrite-while-running
+  timing.
+  `pytest tests/ -q` 14/14 passing after the change.
+
 ### 2026-09-10 (v2.3.1) — chore: dropped Intel Mac CI build entirely
 - **chore (user ask, after the v2.3.1 release hit the exact same Intel-runner
   stall as v2.2.0 before it):** `.github/workflows/release.yml`'s

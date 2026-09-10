@@ -5,7 +5,7 @@ import os
 import re
 import json
 import subprocess
-import webbrowser
+import tempfile
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -22,9 +22,9 @@ from localization import STRINGS
 from styles import generate_stylesheet
 from workers import (
     Spinner, ModalDialog, DeveloperDialog, DownloadItem,
-    VersionCheckWorker, FFmpegHealthCheckWorker, AppUpdateCheckWorker, YTDlpWorker, FFmpegDownloadWorker,
+    VersionCheckWorker, FFmpegHealthCheckWorker, AppUpdateCheckWorker, AppUpdateDownloadWorker, YTDlpWorker, FFmpegDownloadWorker,
     FetchWorker, PlaylistProbeWorker, ThumbnailWorker, DownloadWorker, Mp3DownloadWorker,
-    YTDLP_PATH, FFMPEG_PATH
+    YTDLP_PATH, FFMPEG_PATH, IS_MAC
 )
 
 # --- HELPER FUNCTIONS ---
@@ -416,9 +416,48 @@ class SmartVideoDownloader(QMainWindow):
     def _on_app_update_checked(self, latest_version, silent):
         if hasattr(self, 'update_dialog') and self.update_dialog: self.update_dialog.close()
         if latest_version:
-            dialog = ModalDialog(STRINGS["DIALOG_TITLE_UPDATE_AVAILABLE"], STRINGS["APP_UPDATE_AVAILABLE"].format(latest_version=latest_version), {STRINGS["GO_TO_DOWNLOAD_PAGE"]: "download", STRINGS["SKIP_THIS_VERSION"]: "cancel"}, self)
-            if dialog.exec() and dialog.result == "download": webbrowser.open(f"{config.DEV_GITHUB}/smart-video-downloader/releases/latest")
+            dialog = ModalDialog(STRINGS["DIALOG_TITLE_UPDATE_AVAILABLE"], STRINGS["APP_UPDATE_AVAILABLE"].format(latest_version=latest_version), {STRINGS["DOWNLOAD_AND_INSTALL_BUTTON"]: "download", STRINGS["SKIP_THIS_VERSION"]: "cancel"}, self)
+            if dialog.exec() and dialog.result == "download": self._start_app_update_download()
         elif not silent: ModalDialog(STRINGS["DIALOG_TITLE_UP_TO_DATE"], STRINGS["APP_UP_TO_DATE"].format(app_version=config.APP_VERSION), {"OK": "ok"}, self).exec()
+
+    def _start_app_update_download(self):
+        url = config.APP_INSTALLER_URL_MAC if IS_MAC else config.APP_INSTALLER_URL_WINDOWS
+        dest_path = os.path.join(tempfile.gettempdir(), os.path.basename(url))
+        self.dependency_dialog = ModalDialog(STRINGS["DIALOG_TITLE_DOWNLOADING"], "...", {}, self); self.dependency_dialog.show(); self.setEnabled(False)
+        self.app_update_dl_thread = QThread(); self.app_update_dl_worker = AppUpdateDownloadWorker(url, dest_path); self.app_update_dl_worker.moveToThread(self.app_update_dl_thread)
+        self.app_update_dl_thread.started.connect(self.app_update_dl_worker.run)
+        self.app_update_dl_worker.signals.ytdlp_progress.connect(self._update_dependency_progress)
+        self.app_update_dl_worker.signals.ytdlp_finished.connect(self._on_app_update_downloaded)
+        self.app_update_dl_worker.signals.ytdlp_finished.connect(self.app_update_dl_thread.quit)
+        self.app_update_dl_worker.signals.ytdlp_finished.connect(self.app_update_dl_worker.deleteLater)
+        self.app_update_dl_thread.finished.connect(self.app_update_dl_thread.deleteLater)
+        self.app_update_dl_thread.start()
+
+    def _on_app_update_downloaded(self, success, path_or_error):
+        if self.dependency_dialog: self.dependency_dialog.close(); self.setEnabled(True)
+        if not success:
+            ModalDialog(STRINGS["DIALOG_TITLE_FAILED"], STRINGS["APP_UPDATE_DOWNLOAD_FAILED"].format(error=path_or_error), {"OK": "ok"}, self).exec()
+            return
+        installer_path = path_or_error
+        if IS_MAC:
+            # No silent-install equivalent for a .dmg - mount it and let the user drag
+            # the app into Applications themselves, same as a manual install.
+            try: subprocess.Popen(["open", installer_path])
+            except Exception as e:
+                ModalDialog(STRINGS["DIALOG_TITLE_FAILED"], STRINGS["APP_UPDATE_LAUNCH_FAILED"].format(error=str(e), path=installer_path), {"OK": "ok"}, self).exec()
+                return
+            ModalDialog(STRINGS["DIALOG_TITLE_SUCCESS"], STRINGS["APP_UPDATE_MAC_MOUNTED"], {"OK": "ok"}, self).exec()
+        else:
+            # Launch the Inno Setup installer (its own wizard UI, not silent - the user
+            # still clicks through it) as a fully detached process so it survives this
+            # process exiting, then quit immediately: Windows won't let the installer
+            # overwrite this running exe while it's still open.
+            try:
+                subprocess.Popen([installer_path], creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP, close_fds=True)
+            except Exception as e:
+                ModalDialog(STRINGS["DIALOG_TITLE_FAILED"], STRINGS["APP_UPDATE_LAUNCH_FAILED"].format(error=str(e), path=installer_path), {"OK": "ok"}, self).exec()
+                return
+            os._exit(0)
     
     def _on_add_cookies_clicked(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Cookies File", "", "Text Files (*.txt);;All Files (*)")

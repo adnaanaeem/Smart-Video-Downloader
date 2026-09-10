@@ -12,7 +12,10 @@ A modern, feature-rich desktop application for downloading videos and audio from
 
 ### What's New
 
-*   **v2.3.1 (Current):**
+*   **v2.3.2 (Current):**
+    *   `feat:` **True in-app self-updating.** "Check for Updates" (and the silent startup check) now downloads the new release's installer itself and launches it — Windows opens the installer wizard directly and the app closes itself to let it run; macOS downloads and mounts the new `.dmg` in Finder so you can drag it into Applications. Previously this just opened the GitHub releases page in a browser and left the rest to you.
+
+*   **v2.3.1:**
     *   `feat:` Explicit **8K (4320p)** and **4K (2160p)** quality options in the playlist bulk-download dropdown. (Single-video downloads already had no resolution ceiling — any 8K/4K source stream already showed up in the formats table; this just adds matching explicit options to the playlist quality picker.)
     *   `fix:` Combining **Download Clip Only** with **Faster Downloads (Parallel Fragments)** could near-stall a download for many minutes. The two are no longer allowed to be enabled together — turning on clip mode now disables parallel fragments automatically.
 

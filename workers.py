@@ -165,6 +165,23 @@ class AppUpdateCheckWorker(QObject):
             else: self.signals.app_update_checked.emit("")
         except Exception: self.signals.app_update_checked.emit("")
 
+class AppUpdateDownloadWorker(QObject):
+    """Downloads the platform installer for a new app release to dest_path.
+    Reuses the generic ytdlp_progress/ytdlp_finished signals (same convention
+    FFmpegDownloadWorker already follows for a non-yt-dlp download)."""
+    def __init__(self, url, dest_path): super().__init__(); self.signals = WorkerSignals(); self.url = url; self.dest_path = dest_path
+    def run(self):
+        try:
+            self.signals.ytdlp_progress.emit(STRINGS["STATUS_DOWNLOADING_APP_UPDATE"])
+            response = requests.get(self.url, stream=True, timeout=15); total_size = int(response.headers.get('content-length', 0))
+            with open(self.dest_path, "wb") as f:
+                downloaded_size = 0
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk: f.write(chunk); downloaded_size += len(chunk)
+                    if total_size > 0: self.signals.ytdlp_progress.emit(STRINGS["STATUS_DOWNLOADING_APP_UPDATE_PERCENT"].format(percent=int(100 * downloaded_size / total_size)))
+            self.signals.ytdlp_finished.emit(True, self.dest_path)
+        except Exception as e: self.signals.ytdlp_finished.emit(False, str(e))
+
 class YTDlpWorker(QObject):
     def __init__(self): super().__init__(); self.signals = WorkerSignals()
     def run(self):
