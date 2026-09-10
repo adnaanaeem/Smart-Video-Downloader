@@ -29,6 +29,23 @@ from workers import (
 )
 
 # --- HELPER FUNCTIONS ---
+# Common industry names for resolutions, shown alongside the raw "Np" figure - not
+# everyone knows 2160p means "4K", so pairing them helps users pick the row they want.
+QUALITY_TIER_LABELS = {4320: "8K", 2160: "4K", 1440: "2K", 1080: "Full HD", 720: "HD"}
+
+def quality_label(height):
+    if height is None: return "Unknown"
+    tier = QUALITY_TIER_LABELS.get(height)
+    return f"{tier} ({height}p)" if tier else f"{height}p"
+
+def _quality_sort_key(text):
+    """Resolution number for sorting a quality_label() string descending. Matches the digits
+    immediately before "p" specifically, not just any digit in the string - a tier prefix like
+    "4K (2160p)" also contains a digit ("4"), which a naive digit-strip would glue onto the real
+    resolution (giving "42160") and sort it wrong."""
+    match = re.search(r'(\d+)p', text)
+    return int(match.group(1)) if match else 0
+
 def resource_path(relative_path):
     try: base_path = sys._MEIPASS
     except Exception: base_path = os.path.abspath(".")
@@ -581,7 +598,7 @@ class SmartVideoDownloader(QMainWindow):
             if row_lang: languages.add(row_lang)
 
         self.quality_filter.clear(); self.format_filter.clear(); self.language_filter.clear()
-        self.quality_filter.addItems(["All"] + sorted(list(qualities), key=lambda x: -int(re.sub(r'[^0-9]', '', x) or 0)))
+        self.quality_filter.addItems(["All"] + sorted(list(qualities), key=lambda x: -_quality_sort_key(x)))
         self.format_filter.addItems(["All"] + sorted(list(fmts)))
         self.language_filter.addItems(["All"] + sorted(list(languages)))
         self._filter_table()
@@ -602,7 +619,7 @@ class SmartVideoDownloader(QMainWindow):
         language = None
 
         if is_video:
-            quality = f"{video_format.get('height')}p"; ext = video_format.get('ext', 'mp4'); note = STRINGS["TABLE_NOTE_INCLUDES_AUDIO"]
+            quality = quality_label(video_format.get('height')); ext = video_format.get('ext', 'mp4'); note = STRINGS["TABLE_NOTE_INCLUDES_AUDIO"]
             v_id = video_format['format_id']; a_id = None
             if audio_format:
                 a_id = audio_format['format_id']

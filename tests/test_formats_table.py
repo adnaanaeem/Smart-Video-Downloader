@@ -25,7 +25,7 @@ def test_multi_resolution_multi_language_row_count_and_filters(make_window):
     assert w.formats_table.rowCount() == 14
 
     quality_items = [w.quality_filter.itemText(i) for i in range(w.quality_filter.count())]
-    assert set(quality_items) == {"All", "1080p", "720p", "360p", "Audio"}
+    assert set(quality_items) == {"All", "Full HD (1080p)", "HD (720p)", "360p", "Audio"}
 
     language_items = {w.language_filter.itemText(i) for i in range(w.language_filter.count())}
     assert language_items == {"All", "English", "French", "Spanish"}

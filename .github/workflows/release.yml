@@ -22,7 +22,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip install -r requirements.txt
-          pip install pyinstaller
+          pip install "pyinstaller<6.22.1"
 
       - name: Build executable with PyInstaller
         run: >
@@ -56,7 +56,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           pip install -r requirements.txt
-          pip install pyinstaller
+          pip install "pyinstaller<6.22.1"
 
       - name: Generate icon.icns from icon.png
         run: |

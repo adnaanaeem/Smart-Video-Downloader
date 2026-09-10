@@ -153,6 +153,96 @@ the two). Saved on every change and on `closeEvent`.
 
 Keep entries short: version/date, what changed, why, where.
 
+### 2026-09-10 (v2.3.4) — fix: PyInstaller 6.22.2 broke "launch after install", pin below it; feat: friendly quality-tier labels (HD/2K/4K/8K)
+- **fix (user-reported, real crash, root-caused live):** right after installing the
+  v2.3.3 update via the new self-updater, the user hit a native
+  `Error: Security validation failure: parent process has different
+  executable!` dialog, then (in that same, now-degraded session) every
+  subsequent Fetch failed with `[WinError 2] The system cannot find the
+  file specified`. Root-caused in stages:
+  1. Confirmed via `gh run view --log` that the v2.3.2/v2.3.3 CI builds
+     used `pyinstaller-6.22.2` (unpinned `pip install pyinstaller` in
+     `release.yml`). Confirmed via web search that PyInstaller 6.22.1
+     introduced a new onefile-bootloader security check: a frozen app's
+     "child" process verifies its parent process's executable path
+     matches its own, and PyInstaller's own docs flag installer/wrapper
+     launch chains as a known trigger for false positives — this exactly
+     matches `setup_script.iss`'s existing `[Run]` "launch after install"
+     step (`Flags: nowait postinstall skipifsilent`), unchanged since
+     v2.1.2 and never a problem before because CI's unpinned PyInstaller
+     had never crossed this version threshold until now.
+  2. **Verified directly on this machine** (not just from docs) by
+     building the real app twice - once pinned to `6.22.0` (below the
+     threshold), once with the actual `6.22.2` that shipped - compiling a
+     real Inno Setup installer each time (a temporary local copy of
+     `setup_script.iss` with `skipifsilent` removed so a `/VERYSILENT`
+     install still exercises the same postinstall launch, letting this be
+     checked via `Get-Process`/Win32 `EnumWindows` instead of clicking
+     through a GUI wizard) and silent-installing to a throwaway directory.
+     The `6.22.0` build's postinstall launch completed cleanly every time
+     (window title `Smart Video Downloader v2.3.3`, no error window). The
+     `6.22.2` build did NOT reliably reproduce the crash dialog in this
+     specific repro (suggesting some timing/environment sensitivity to
+     exactly when/how it triggers) — but the *documented* PyInstaller
+     changelog + advanced-topics behavior, the exact matching error text,
+     and the fact this only appeared after CI silently picked up 6.22.2
+     for the first time are strong enough corroborating evidence on their
+     own, and the fix (pin below the threshold) is safe regardless of the
+     precise trigger conditions.
+  3. **Explains the follow-on `[WinError 2]` too:** the user's already-
+     running post-crash session had `yt-dlp.exe`/`ffmpeg.exe` genuinely
+     present at the real install path (verified directly - both files
+     exist, and running the exact same `--flat-playlist --dump-json`
+     command with the same cookies file directly via that installed
+     `yt-dlp.exe` succeeds every time) - so the binaries were never
+     actually missing. The working theory is that the failed/interrupted
+     security check left that specific process's `sys.executable`
+     resolution (which `workers.py` `get_bin_dir()` depends on for
+     `YTDLP_PATH`/`FFMPEG_PATH`) in a bad state for the rest of that
+     session, even though the main window kept rendering normally. This
+     is a property of *that one already-running, already-broken process*
+     - not something a code fix can repair in place. **The user needs to
+     fully close that instance**; once this fix's build is installed
+     fresh, new launches won't hit the bootloader check at all.
+  **Fix:** `.github/workflows/release.yml` pins both `build-windows` and
+  `build-macos-arm64`'s `pip install pyinstaller` to
+  `pip install "pyinstaller<6.22.1"`, so CI can no longer silently drift
+  onto a PyInstaller version with this behavior again without a deliberate
+  version bump.
+- **feat (user ask: "guide the user about the quality with label HD, 2k,
+  4k along resolution"):** the Quality filter/table only ever showed raw
+  numbers (`2160p`, `1440p`, ...) - not everyone knows `2160p` means "4K".
+  Added `main.py` `QUALITY_TIER_LABELS`/`quality_label(height)` (maps
+  4320→8K, 2160→4K, 1440→2K, 1080→Full HD, 720→HD; anything else falls
+  back to the plain `Np` it always showed) and used it in
+  `_add_format_row`'s quality-cell text instead of the raw `f"{height}p"`.
+  Also updated the playlist bulk-download quality dropdown's existing
+  1080p/720p labels (`localization.py` `PLAYLIST_QUALITY_1080P`/
+  `_720P`) to the same `"Full HD (1080p)"`/`"HD (720p)"` wording, matching
+  the `"8K (4320p)"`/`"4K (2160p)"` convention that dropdown already used
+  from the earlier v2.3.1 8K/4K work - so the labeling scheme is now
+  consistent everywhere quality is shown, not just the main table.
+  **Fixed a real latent bug this exposed:** the quality filter dropdown's
+  sort-by-resolution key (`re.sub(r'[^0-9]', '', x)` - strip all non-digit
+  characters) would have glued the tier prefix's own digit onto the real
+  resolution for a string like `"4K (2160p)"` (stripping to `"42160"`,
+  sorting it as if it were a nonsensical ~42-million-p format) had it
+  shipped as-is. Replaced with a dedicated `_quality_sort_key(text)` that
+  matches digits specifically immediately before `"p"` via `r'(\d+)p'`,
+  correctly extracting `2160` regardless of what prefix precedes it.
+  **Verified via a scripted (no GUI) check:** `quality_label()` output for
+  every real height value, `_quality_sort_key()` output for every
+  resulting label including the tiered ones, and a full
+  `_populate_formats_table()` run with synthetic 8K/4K/1080p/720p/audio
+  data confirming both the row text (`"8K (4320p)"` for a 4320p row) and
+  the dropdown's descending sort order came out correct. Updated the
+  pre-existing `tests/test_formats_table.py` fixture-based assertion
+  (`{"All", "1080p", "720p", "360p", "Audio"}` → `{"All", "Full HD
+  (1080p)", "HD (720p)", "360p", "Audio"}`) since it was asserting the old
+  raw labels - this is exactly the kind of change a regression test is
+  supposed to catch, not something to work around. `pytest tests/ -q`
+  14/14 passing after the update.
+
 ### 2026-09-10 (v2.3.3) — feat: automatic self-heal for YouTube's signature/"n" challenge (lazy Deno download + retry)
 - **feat (user-reported real failure, root-caused live):** user hit
   `ERROR: [youtube] <id>: Requested format is not available` on a real

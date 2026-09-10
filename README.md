@@ -12,7 +12,11 @@ A modern, feature-rich desktop application for downloading videos and audio from
 
 ### What's New
 
-*   **v2.3.3 (Current):**
+*   **v2.3.4 (Current):**
+    *   `fix:` A packaging regression (PyInstaller 6.22.2) could cause a `Security validation failure` error right after installing an update, and break downloads afterward with `[WinError 2]`. If you hit either of these, **fully close the app and reinstall** — this release is pinned below the broken version.
+    *   `feat:` The quality picker now shows friendlier labels alongside the resolution — e.g. **"4K (2160p)"**, **"Full HD (1080p)"**, **"HD (720p)"** — instead of just the raw number.
+
+*   **v2.3.3:**
     *   `fix:` Downloads that fail because YouTube's signature/"n" challenge needs a JavaScript runtime (`Signature solving failed`, `Only images are available for download`) now **fix themselves automatically** — the app downloads a small one-time component (Deno) and retries the download, with clear progress shown right in the queue item. No manual setup needed.
 
 *   **v2.3.2:**
