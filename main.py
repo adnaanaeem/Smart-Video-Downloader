@@ -547,7 +547,15 @@ class SmartVideoDownloader(QMainWindow):
         self.video_title.setText(self.fetched_data.get("title", "N/A")); self.video_description.setText(self.fetched_data.get("description", STRINGS["NO_DESCRIPTION"]))
         duration = self.fetched_data.get('duration')
         self.clip_duration_label.setText(STRINGS["CLIP_DURATION_HINT"].format(duration=self._format_duration(duration)) if duration else "")
-        self.clip_checkbox.setChecked(False); self.clip_start_input.clear(); self.clip_end_input.clear()
+        self.clip_checkbox.setChecked(False)
+        # Pre-fill the full 0:00-to-end range as the default rather than leaving the fields
+        # empty - a user who only wants to trim one side (e.g. cut a dead intro but keep
+        # everything after) can then just edit that one field instead of having to know and
+        # retype the video's full duration themselves.
+        if duration:
+            self.clip_start_input.setText("0:00"); self.clip_end_input.setText(self._format_duration(duration))
+        else:
+            self.clip_start_input.clear(); self.clip_end_input.clear()
         thumb_url = self.fetched_data.get('thumbnail')
         if thumb_url:
             self.thumb_thread = QThread(); self.thumb_worker = ThumbnailWorker(thumb_url); self.thumb_worker.moveToThread(self.thumb_thread)

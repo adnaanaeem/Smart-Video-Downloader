@@ -4,6 +4,7 @@ import sys
 import os
 import re
 import json
+import signal
 import requests
 import subprocess
 import zipfile
@@ -340,6 +341,24 @@ class ThumbnailWorker(QObject):
             if response.status_code == 200: pixmap = QPixmap(); pixmap.loadFromData(response.content); self.signals.thumbnail_loaded.emit(pixmap)
         except Exception: pass
 
+def _terminate_process_tree(process):
+    """process.terminate() alone only kills the immediate yt-dlp process - it does NOT kill any
+    child process yt-dlp itself spawned (most commonly ffmpeg, for merging video+audio or MP3
+    post-processing). That child keeps running and keeps holding the inherited stdout pipe open,
+    so run()'s blocking `for line in iter(process.stdout.readline, '')` loop doesn't see EOF
+    until the child ALSO exits - which is why Cancel used to appear to do nothing until the
+    download (and merge/post-process step) fully finished, instead of stopping immediately.
+    Killing the whole process tree fixes that. On Windows, `taskkill /T` is the standard way to
+    do this without adding a new dependency (psutil/pywin32); on macOS, the process is launched
+    into its own session (see start_new_session in DownloadWorker/Mp3DownloadWorker.run) so the
+    whole tree shares one process group that a single SIGTERM to that group reaches."""
+    if process is None or process.poll() is not None: return
+    try:
+        if IS_MAC: os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        else: subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)], creationflags=CREATE_NO_WINDOW, capture_output=True)
+    except Exception:
+        process.terminate()  # best-effort fallback if the tree-kill itself fails
+
 def _clip_section_args(clip_start, clip_end):
     """--download-sections args for a time-range clip (yt-dlp seeks/range-requests where the
     format supports it, rather than downloading the full video). Deliberately NOT passing
@@ -371,7 +390,7 @@ class DownloadWorker(QObject):
 
     def cancel(self):
         self.cancelled = True
-        if self.process: self.process.terminate()
+        _terminate_process_tree(self.process)
 
     def run(self):
         try:
@@ -382,7 +401,7 @@ class DownloadWorker(QObject):
             cmd.extend(_clip_section_args(self.clip_start, self.clip_end))
             if self.concurrent_fragments: cmd.extend(["-N", str(self.concurrent_fragments)])
 
-            self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', creationflags=CREATE_NO_WINDOW)
+            self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', creationflags=CREATE_NO_WINDOW, start_new_session=IS_MAC)
             output_lines = []; progress_regex = re.compile(r"\[download\]\s+(?P<percent>[\d\.]+)%")
             for line in iter(self.process.stdout.readline, ''):
                 stripped_line = line.strip(); output_lines.append(stripped_line); self.signals.log.emit(stripped_line)
@@ -407,7 +426,7 @@ class Mp3DownloadWorker(QObject):
 
     def cancel(self):
         self.cancelled = True
-        if self.process: self.process.terminate()
+        _terminate_process_tree(self.process)
 
     def run(self):
         try:
@@ -417,7 +436,7 @@ class Mp3DownloadWorker(QObject):
             if self.embed_metadata: cmd.extend(["--embed-thumbnail", "--embed-metadata"])
             cmd.extend(_clip_section_args(self.clip_start, self.clip_end))
             if self.concurrent_fragments: cmd.extend(["-N", str(self.concurrent_fragments)])
-            self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', creationflags=CREATE_NO_WINDOW)
+            self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', creationflags=CREATE_NO_WINDOW, start_new_session=IS_MAC)
             output_lines = []; progress_regex = re.compile(r"\[download\]\s+Destination:\s.*\s+\(frag\s\d+/\d+\)\n\[download\]\s+(?P<percent>[\d\.]+)%")
             dest_regex = re.compile(r"\[ExtractAudio\] Destination: (.*)")
             for line in iter(self.process.stdout.readline, ''):

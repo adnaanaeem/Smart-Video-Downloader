@@ -12,7 +12,11 @@ A modern, feature-rich desktop application for downloading videos and audio from
 
 ### What's New
 
-*   **v2.3.4 (Current):**
+*   **v2.3.5 (Current):**
+    *   `feat:` The clip Start/End fields now default to **0:00 and the video's full length**, so trimming just one side of a video only requires editing that one field.
+    *   `fix:` **Cancel now actually stops immediately** — it used to keep downloading (and even finish merging the file) in the background before the "Cancelled" status caught up.
+
+*   **v2.3.4:**
     *   `fix:` A packaging regression (PyInstaller 6.22.2) could cause a `Security validation failure` error right after installing an update, and break downloads afterward with `[WinError 2]`. If you hit either of these, **fully close the app and reinstall** — this release is pinned below the broken version.
     *   `feat:` The quality picker now shows friendlier labels alongside the resolution — e.g. **"4K (2160p)"**, **"Full HD (1080p)"**, **"HD (720p)"** — instead of just the raw number.
 

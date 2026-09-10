@@ -153,6 +153,55 @@ the two). Saved on every change and on `closeEvent`.
 
 Keep entries short: version/date, what changed, why, where.
 
+### 2026-09-10 (v2.3.5) — feat: pre-filled clip start/end defaults; fix: Cancel didn't stop the download until the merge finished
+- **feat (user ask: "add the start and time stamp in the fields... as
+  default value... if he only wants to trim from start or end"):** the
+  clip Start/End inputs only ever showed grey placeholder text
+  (`"Start (mm:ss)"`/`"End (mm:ss)"`), no real value - a user who only
+  wanted to trim, say, a dead intro off the front had to know and type the
+  video's exact end timestamp themselves just to leave the rest untouched.
+  `main.py` `_populate_video_data` now pre-fills `clip_start_input` with
+  `"0:00"` and `clip_end_input` with the video's actual duration
+  (`self._format_duration(duration)`, the same formatter already used for
+  the "Video length: ..." hint) whenever a real duration is known - so
+  trimming just one side now only requires editing that one field. Falls
+  back to leaving both empty (old behavior) when duration is unavailable
+  (e.g. a live stream), same as the existing hint-label logic. Verified
+  via a scripted check against both a normal video (duration=287 -> fields
+  become `"0:00"`/`"4:47"`) and an unknown-duration case (fields stay
+  empty, no bogus `0:00`-to-`0:00` default).
+- **fix (user-reported, real bug): Cancel appeared to do nothing until
+  the full download (and merge/post-processing) finished.** Root cause:
+  `DownloadWorker`/`Mp3DownloadWorker.cancel()` called
+  `self.process.terminate()`, which only kills the immediate `yt-dlp.exe`
+  process - not any child it spawns (most commonly `ffmpeg`, used both as
+  the actual downloader for some DASH/HLS formats and for the final
+  video+audio merge/MP3 extraction step). That orphaned child keeps
+  running and keeps the inherited stdout pipe open, so `run()`'s blocking
+  `for line in iter(process.stdout.readline, '')` loop never sees EOF
+  until the orphan ALSO exits - meaning a "cancelled" download actually
+  kept downloading/merging in the background the whole time, exactly
+  matching the report ("it 1st downloaded the song and then cancel it
+  while preparing file").
+  **Fix:** new `workers.py` `_terminate_process_tree(process)` kills the
+  *whole* process tree instead of just the immediate one: `taskkill /F /T
+  /PID <pid>` on Windows (standard OS tool, no new dependency), or
+  `os.killpg(os.getpgid(pid), SIGTERM)` on macOS - which requires the
+  process to actually be its own session leader, so
+  `DownloadWorker`/`Mp3DownloadWorker.run()` now pass
+  `start_new_session=IS_MAC` to `subprocess.Popen` so the whole tree
+  shares one process group there. Both `cancel()` methods now call this
+  instead of `process.terminate()` directly.
+  **Verified live against a real download, not mocked:** queued a real
+  2160p video through the actual `_launch_download` pipeline, let it run
+  until progress hit `100%` (i.e. caught it mid-merge, the exact "preparing
+  file" phase from the report) before calling `.cancel()` - the queue item
+  flipped to `"cancelled"` in **0.27 seconds**, and the save directory was
+  left with only yt-dlp's own small `.part`/`.part-FragN.part`/`.ytdl`
+  resume artifacts (a few KB), not a completed merged file - confirming
+  the merge was genuinely interrupted immediately rather than left to
+  finish in the background. `pytest tests/ -q` 14/14 passing throughout.
+
 ### 2026-09-10 (v2.3.4) — fix: PyInstaller 6.22.2 broke "launch after install", pin below it; feat: friendly quality-tier labels (HD/2K/4K/8K)
 - **fix (user-reported, real crash, root-caused live):** right after installing the
   v2.3.3 update via the new self-updater, the user hit a native
